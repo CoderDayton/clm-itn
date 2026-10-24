@@ -45,6 +45,7 @@ pub enum Mode {
     Cases(String),
     Pairs { path: String, isolated: bool },
     Lines(LinesOpts),
+    Spell(String),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -52,6 +53,7 @@ pub struct LinesOpts {
     pub path: String,
     pub tag: Option<String>,
     pub all_failures: bool,
+    pub single_digits: bool,
 }
 
 fn lines_opts(rest: &[String]) -> Result<LinesOpts, String> {
@@ -68,6 +70,10 @@ fn lines_opts(rest: &[String]) -> Result<LinesOpts, String> {
         rest = match (flag.as_str(), tail) {
             ("--all-failures", t) if !opts.all_failures => {
                 opts.all_failures = true;
+                t
+            }
+            ("--single-digits", t) if !opts.single_digits => {
+                opts.single_digits = true;
                 t
             }
             ("--tag", [tag, t @ ..]) if opts.tag.is_none() && !tag.starts_with("--") => {
@@ -98,6 +104,7 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Mode, Strin
             isolated: true,
         }),
         [flag, rest @ ..] if flag == "--lines" => lines_opts(rest).map(Mode::Lines),
+        [flag, path] if flag == "--spell" => Ok(Mode::Spell(path.clone())),
         [dir] if !dir.starts_with("--") => Ok(Mode::Cases(dir.clone())),
         _ => Err(crate::USAGE.to_string()),
     }
@@ -483,8 +490,19 @@ mod tests {
                 path: "d.tsv".into(),
                 tag: tag.map(Into::into),
                 all_failures: all,
+                single_digits: false,
             }))
         };
+        assert_eq!(
+            args(&["--lines", "d.tsv", "--single-digits"]),
+            Ok(Mode::Lines(LinesOpts {
+                path: "d.tsv".into(),
+                tag: None,
+                all_failures: false,
+                single_digits: true,
+            }))
+        );
+        assert!(args(&["--lines", "d.tsv", "--single-digits", "--single-digits"]).is_err());
         assert_eq!(args(&["--lines", "d.tsv"]), opts(None, false));
         assert_eq!(
             args(&["--lines", "d.tsv", "--tag", "time"]),

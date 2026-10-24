@@ -1,20 +1,20 @@
-five pm	5 p.m.	time
-at five thirty pm	at 5:30 p.m.	time
-the meeting is at ten thirty am	the meeting is at 10:30 a.m.	time
+five pm	5 pm	time
+at five thirty pm	at 5:30 pm	time
+the meeting is at ten thirty am	the meeting is at 10:30 am	time
 call me at seven fifteen tonight	call me at 7:15 tonight	time
-i get up at six am	i get up at 6 a.m.	time
+i get up at six am	i get up at 6 am	time
 lunch is at twelve thirty	lunch is at 12:30	time
-the train leaves at nine forty five am	the train leaves at 9:45 a.m.	time
+the train leaves at nine forty five am	the train leaves at 9:45 am	time
 let's meet at three o'clock	let's meet at 3 o'clock	time
 it starts at eight o'clock sharp	it starts at 8 o'clock sharp	time
-i'll be home by eleven pm	i'll be home by 11 p.m.	time
-the store opens at nine am	the store opens at 9 a.m.	time
-the flight lands at four twenty pm	the flight lands at 4:20 p.m.	time
+i'll be home by eleven pm	i'll be home by 11 pm	time
+the store opens at nine am	the store opens at 9 am	time
+the flight lands at four twenty pm	the flight lands at 4:20 pm	time
 dinner at seven thirty	dinner at 7:30	time
-pick me up at two pm	pick me up at 2 p.m.	time
-the call is at one pm eastern	the call is at 1 p.m. eastern	time
-set an alarm for six forty five am	set an alarm for 6:45 a.m.	time
-the show starts at eight pm	the show starts at 8 p.m.	time
+pick me up at two pm	pick me up at 2 pm	time
+the call is at one pm eastern	the call is at 1 pm eastern	time
+set an alarm for six forty five am	set an alarm for 6:45 am	time
+the show starts at eight pm	the show starts at 8 pm	time
 we close at five thirty	we close at 5:30	time
 it's five thirty	it's 5:30	time!
 the bus comes at ten oh five	the bus comes at 10:05	time
@@ -22,22 +22,22 @@ the deadline is twelve noon	the deadline is noon	time!
 the party ends at twelve midnight	the party ends at midnight	time!
 meet me at half past four	meet me at 4:30	time!
 the class starts at a quarter past nine	the class starts at 9:15	time!
-we left at ten pm	we left at 10 p.m.	time
-the appointment is at eleven fifteen am	the appointment is at 11:15 a.m.	time
-we work from nine am to five pm	we work from 9 a.m. to 5 p.m.	time
-call between two and four pm	call between 2 and 4 p.m.	time!
-i woke up at five am	i woke up at 5 a.m.	time
-the kickoff is at seven pm	the kickoff is at 7 p.m.	time
+we left at ten pm	we left at 10 pm	time
+the appointment is at eleven fifteen am	the appointment is at 11:15 am	time
+we work from nine am to five pm	we work from 9 am to 5 pm	time
+call between two and four pm	call between 2 and 4 pm	time!
+i woke up at five am	i woke up at 5 am	time
+the kickoff is at seven pm	the kickoff is at 7 pm	time
 at three fifteen we'll start	at 3:15 we'll start	time
 it is ten o'clock	it is 10 o'clock	time
 see you at eight	see you at 8	time!
-the webinar is at two thirty pm	the webinar is at 2:30 p.m.	time
-check out is at eleven am	check out is at 11 a.m.	time
-the alarm went off at four am	the alarm went off at 4 a.m.	time
-my shift starts at six thirty am	my shift starts at 6:30 a.m.	time
-the store closes at nine pm	the store closes at 9 p.m.	time
-the meeting is at three p m	the meeting is at 3 p.m.	time
-we start at nine a m	we start at 9 a.m.	time
+the webinar is at two thirty pm	the webinar is at 2:30 pm	time
+check out is at eleven am	check out is at 11 am	time
+the alarm went off at four am	the alarm went off at 4 am	time
+my shift starts at six thirty am	my shift starts at 6:30 am	time
+the store closes at nine pm	the store closes at 9 pm	time
+the meeting is at three p m	the meeting is at 3 pm	time
+we start at nine a m	we start at 9 am	time
 the movie starts at seven forty	the movie starts at 7:40	time
 i'll call you at four	i'll call you at 4	time!
 i'll be there in five minutes	i'll be there in five minutes	duration
@@ -318,7 +318,7 @@ in the eighteen hundreds	in the 1800s	trap_plural!
 it cost hundreds of dollars	it cost hundreds of dollars	trap_plural
 she's in her twenties	she's in her 20s	trap_plural
 it's 5 thirty	it's 5:30	trap_mixed!
-meet at 5 thirty pm	meet at 5:30 p.m.	trap_mixed!
+meet at 5 thirty pm	meet at 5:30 pm	trap_mixed!
 it's twenty 5 dollars	it's twenty 5 dollars	trap_mixed!
 we march five miles a day	we march 5 miles a day	trap_month_verb
 it may first be noticed	it may first be noticed	trap_month_verb

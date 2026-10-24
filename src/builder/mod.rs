@@ -782,7 +782,7 @@ impl Pool {
         if roles == [english::ROLE_DIGIT] {
             list.push(self.raw(1)?);
         }
-        let variants = [(0, false), (2, false), (2, true)];
+        let variants = [(0, true), (2, false), (2, true)];
         for (width, dotted) in variants {
             if let Some(ops) = self.clock(roles, width, dotted) {
                 list.push(self.intern(roles.len(), &ops)?);
@@ -826,13 +826,7 @@ impl Pool {
             ops.push(op::lit(self.on_the_hour));
         }
         if mer == 2 {
-            ops.extend([
-                op::lit(self.space),
-                op::raw(1),
-                op::lit(self.dot),
-                op::raw(1),
-                op::lit(self.dot),
-            ]);
+            ops.extend([op::lit(self.space), op::raw(1), op::raw(1)]);
         } else if hour_width == 2 {
             ops.push(op::skip(1));
         } else {
@@ -844,10 +838,7 @@ impl Pool {
     fn reading(&self, roles: &[Role]) -> Vec<u32> {
         use english::ROLE_MINUS;
         let n = roles.len();
-        if let Some(ops) = self
-            .clock(roles, 0, true)
-            .or_else(|| self.clock(roles, 0, false))
-        {
+        if let Some(ops) = self.clock(roles, 0, false) {
             return ops;
         }
         if n >= 2 && roles[0] == ROLE_MINUS {
@@ -1468,9 +1459,9 @@ mod tests {
         assert_cardinal(
             &t,
             &[
-                ("four p m", "4 p.m."),
-                ("ten twenty five p m", "10:25 p.m."),
-                ("nine oh seven p m", "9:07 p.m."),
+                ("four p m", "4 pm"),
+                ("ten twenty five p m", "10:25 pm"),
+                ("nine oh seven p m", "9:07 pm"),
                 ("six o'clock", "6 o'clock"),
                 ("twelve oclock", "12 o'clock"),
             ],
@@ -1479,15 +1470,15 @@ mod tests {
     }
 
     #[test]
-    fn single_token_meridiem_is_dotted_then_written_as_is() {
+    fn single_token_meridiem_is_written_as_is_then_dotted() {
         let t = build_english().expect("build");
         for (phrase, as_is, dotted) in [
             ("five thirty pm", "5:30 pm", "5:30 p.m."),
             ("five pm", "5 pm", "5 p.m."),
             ("eleven fifty five am", "11:55 am", "11:55 a.m."),
         ] {
-            assert_eq!(render_reading_at(&t, phrase, DOMAIN_CARDINAL, 0), dotted);
-            assert_eq!(render_reading_at(&t, phrase, DOMAIN_CARDINAL, 1), as_is);
+            assert_eq!(render_reading_at(&t, phrase, DOMAIN_CARDINAL, 0), as_is);
+            assert_eq!(render_reading_at(&t, phrase, DOMAIN_CARDINAL, 1), dotted);
         }
     }
 
@@ -1495,7 +1486,7 @@ mod tests {
     fn zero_padded_time_is_the_next_rank() {
         let t = build_english().expect("build");
         for (phrase, domain, want) in [
-            ("four p m", DOMAIN_CARDINAL, "04:00 p.m."),
+            ("four p m", DOMAIN_CARDINAL, "04:00 pm"),
             ("six o'clock", DOMAIN_CARDINAL, "06:00"),
             ("five thirty", DOMAIN_TIME, "05:30"),
             ("nine oh seven", DOMAIN_TIME, "09:07"),
@@ -1592,7 +1583,7 @@ mod tests {
             ("five", "five"),
             ("twenty one", "21"),
             ("one dollar", "$1"),
-            ("at one pm", "at 1 p.m."),
+            ("at one pm", "at 1 pm"),
             ("one", "one"),
             ("at first sight", "at first sight"),
             ("at second glance", "at second glance"),

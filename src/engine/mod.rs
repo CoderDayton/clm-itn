@@ -4,15 +4,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub mod span;
 pub mod window;
 
+use crate::builder::english::ROLE_DIGIT;
 use crate::learn::cell::{Cells, rank0, unpack};
 use crate::learn::ring::Producer;
 use crate::tables::context::{abstains, select};
 use crate::tables::{Tables, WORDS_FIRST_WORDS};
 use crate::types::{
     CANDIDATE_NONE, CELL_ABSTAINED, CELL_COUNT, CLASS_BOUNDARY, CandidateId, CellIndex,
-    CorrectionError, CorrectionEvent, DOMAIN_CARDINAL, DOMAIN_ORDINAL, DOMAIN_PLAIN, DOMAIN_TIME,
-    DomainId, FormatError, MAX_TOKENS, SHAPE_UNKNOWN, ShapeId, SpanReceipt, TokenInfo, cell_domain,
-    cell_index,
+    CorrectionError, CorrectionEvent, DOMAIN_CARDINAL, DOMAIN_IDENTIFIER, DOMAIN_ORDINAL,
+    DOMAIN_PLAIN, DOMAIN_TIME, DomainId, FormatError, MAX_TOKENS, SHAPE_UNKNOWN, ShapeId,
+    SpanReceipt, TokenInfo, cell_domain, cell_index,
 };
 use span::{Affixes, Span, segment};
 
@@ -30,6 +31,7 @@ pub struct Engine<'t> {
     tables: &'t Tables,
     cells: Arc<Cells>,
     out_of_set: AtomicU64,
+    single_digits: bool,
 }
 
 impl<'t> Engine<'t> {
@@ -44,7 +46,21 @@ impl<'t> Engine<'t> {
             tables,
             cells,
             out_of_set: AtomicU64::new(0),
+            single_digits: false,
         }
+    }
+
+    pub fn with_single_digits(mut self, on: bool) -> Self {
+        self.single_digits = on;
+        self
+    }
+
+    pub fn single_digits(&self) -> bool {
+        self.single_digits
+    }
+
+    pub fn is_digit_word(&self, canonical: u16, role: u8) -> bool {
+        role == ROLE_DIGIT && self.value(canonical) < 10
     }
 
     pub fn cells(&self) -> &Arc<Cells> {
@@ -349,15 +365,19 @@ impl<'t> Engine<'t> {
         let base = abstain
             | (domain == DOMAIN_CARDINAL)
             | (domain == DOMAIN_ORDINAL)
-            | ((domain == DOMAIN_TIME) & any_domain);
+            | ((domain == DOMAIN_TIME) & any_domain)
+            | ((domain == DOMAIN_IDENTIFIER) & any_domain);
         let inside = (span.left != CLASS_BOUNDARY) | (span.right != CLASS_BOUNDARY);
         let r = span.right as usize;
         let before_month = (t.starts.0[(r >> 6) & 3] >> (r & 63)) & 1 == 1;
-        let words = marked & (span.len == 1) & base & inside & !span.dropped & !before_month;
+        let digit_word =
+            self.single_digits & (span.len == 1) & self.is_digit_word(info.canonical, role);
+        let words =
+            marked & (span.len == 1) & base & inside & !span.dropped & !before_month & !digit_word;
         Some((
             shape,
             select(words, domain, DOMAIN_PLAIN),
-            abstain & !words,
+            (abstain & !words) | digit_word,
             span.len,
             span.lead,
         ))
@@ -722,7 +742,7 @@ mod tests {
     }
 
     #[test]
-    fn litv_reads_units_currencies_and_dots_the_meridiem() {
+    fn litv_reads_units_currencies_and_keeps_the_meridiem() {
         let engine = Engine::new(crate::english());
         for (text, want) in [
             ("two hundred meters", "200 meters"),
@@ -732,8 +752,8 @@ mod tests {
             ("five dollars", "$5"),
             ("fifty cents", "50 cents"),
             ("five percent", "5%"),
-            ("at five thirty pm", "at 5:30 p.m."),
-            ("call at five am", "call at 5 a.m."),
+            ("at five thirty pm", "at 5:30 pm"),
+            ("call at five am", "call at 5 am"),
         ] {
             assert_eq!(fmt(&engine, text).0, want, "{text}");
         }

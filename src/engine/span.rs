@@ -58,10 +58,13 @@ pub fn segment(
             i += 1;
             continue;
         }
-        let start = i;
+        let mut start = i;
         while i < n && role(i) != ROLE_NONE && (i == start || !starts(&affixes.starts, classes[i]))
         {
             i += 1;
+        }
+        while start + 1 < i && has(affixes.connectors, u32::from(role(start))) {
+            start += 1;
         }
         let mut end = i;
         while end > start + 1 && connector(end - 1) {
@@ -296,6 +299,20 @@ mod tests {
         assert_eq!((s.len, s.core, s.right), (1, 1, CLASS_UNKNOWN));
         let s = run(&[DIGIT, DEGREE, SQUARE])[0];
         assert_eq!((s.len, s.core, s.right), (3, 1, DEGREE));
+    }
+
+    #[test]
+    fn a_leading_connector_leaves_the_span() {
+        let s = run(&[AND, DIGIT, WORD]);
+        assert_eq!(s.len(), 1);
+        assert_eq!(
+            (s[0].start, s[0].len, s[0].key, s[0].left),
+            (1, 1, 0x1, AND)
+        );
+        let s = run(&[WORD, AND, DIGIT, TENS]);
+        assert_eq!((s[0].start, s[0].len, s[0].left), (2, 2, AND));
+        let s = run(&[AND]);
+        assert_eq!((s.len(), s[0].len), (1, 1));
     }
 
     #[test]

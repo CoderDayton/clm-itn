@@ -4,13 +4,16 @@ use std::process::ExitCode;
 use clm_itn::engine::Engine;
 use clm_itn::engine::window::format_line;
 
-const USAGE: &str = "Usage: clm-itn [--help | --version]
+const USAGE: &str = "Usage: clm-itn [--single-digits] [--help | --version]
 
 Reads spoken-form text from stdin, one sentence per line, and writes the
-written form to stdout. Invalid UTF-8 bytes become U+FFFD.";
+written form to stdout. Invalid UTF-8 bytes become U+FFFD.
 
-fn run() -> io::Result<()> {
-    let engine = Engine::new(clm_itn::english());
+--single-digits  write lone single numbers as digits (\"8 years\") instead of AP
+                 words (\"eight years\")";
+
+fn run(digits: bool) -> io::Result<()> {
+    let engine = Engine::new(clm_itn::english()).with_single_digits(digits);
     let mut input = io::stdin().lock();
     let mut stdout = io::stdout().lock();
     let mut raw = Vec::new();
@@ -28,16 +31,21 @@ fn run() -> io::Result<()> {
     }
 }
 
+fn start(digits: bool) -> ExitCode {
+    match run(digits) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("clm-itn: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.as_slice() {
-        [] => match run() {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("clm-itn: {e}");
-                ExitCode::FAILURE
-            }
-        },
+        [] => start(false),
+        [a] if a == "--single-digits" => start(true),
         [a] if a == "--help" || a == "-h" => {
             println!("{USAGE}");
             ExitCode::SUCCESS

@@ -55,7 +55,7 @@ fn engine_on_static_tables_allocates_only_its_cells() {
     let (done, count, _) = counted(|| engine.format(&tokens, &mut out, &mut receipts));
     assert_eq!(count, 0, "format allocated");
     let done = done.expect("format");
-    assert_eq!(&out[..done.len], b"at 5:30 p.m.");
+    assert_eq!(&out[..done.len], b"at 5:30 pm");
 }
 
 #[test]

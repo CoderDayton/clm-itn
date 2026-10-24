@@ -28,6 +28,15 @@ fn invalid_utf8_line_does_not_stop_later_lines() {
 }
 
 #[test]
+fn single_digits_flag_writes_lone_numbers_as_digits() {
+    let plain = run(&[], b"like eight years\n");
+    assert_eq!(plain.stdout, b"like eight years\n");
+    let digits = run(&["--single-digits"], b"like eight years\n");
+    assert!(digits.status.success());
+    assert_eq!(digits.stdout, b"like 8 years\n");
+}
+
+#[test]
 fn version_prints_name_and_version() {
     let out = run(&["--version"], b"");
     assert!(out.status.success());

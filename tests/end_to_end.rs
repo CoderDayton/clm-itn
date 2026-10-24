@@ -25,9 +25,9 @@ fn run(engine: &Engine, text: &str) -> (String, Vec<SpanReceipt>) {
 fn spoken_to_written() {
     let engine = engine();
     let cases = [
-        ("at five thirty pm", "at 5:30 p.m."),
-        ("five oh five am", "5:05 a.m."),
-        ("five pm", "5 p.m."),
+        ("at five thirty pm", "at 5:30 pm"),
+        ("five oh five am", "5:05 am"),
+        ("five pm", "5 pm"),
         ("at three o'clock", "at 3 o'clock"),
         ("room four oh two", "room 402"),
         ("flight one two three", "flight 123"),
@@ -59,7 +59,7 @@ fn format_line_never_cuts_a_number() {
         ),
         (
             "meet me at five thirty pm in room four oh two",
-            "meet me at 5:30 p.m. in room 402",
+            "meet me at 5:30 pm in room 402",
         ),
         (
             "one hundred forty seven thousand four hundred fifty one",
@@ -88,7 +88,7 @@ fn format_line_keeps_punctuation_outside_numbers() {
     let engine = engine();
     let cases = [
         ("it was twenty five, then thirty.", "it was 25, then 30."),
-        ("meet at five thirty pm.", "meet at 5:30 p.m."),
+        ("meet at five thirty pm.", "meet at 5:30 pm."),
         ("room (four oh two) is free", "room (402) is free"),
         ("one, two, three", "one, two, three"),
         ("First, we go home.", "First, we go home."),
@@ -99,17 +99,17 @@ fn format_line_keeps_punctuation_outside_numbers() {
         ("\"twenty five\"", "\"25\""),
         ("at five p.m. sharp", "at 5 p.m. sharp"),
         ("hello, world!", "hello, world!"),
-        ("at seven p m.", "at 7 p.m."),
-        ("at eleven forty a m", "at 11:40 a.m."),
-        ("at eleven forty a m, then", "at 11:40 a.m., then"),
-        ("the meeting is at three p m", "the meeting is at 3 p.m."),
+        ("at seven p m.", "at 7 pm."),
+        ("at eleven forty a m", "at 11:40 am"),
+        ("at eleven forty a m, then", "at 11:40 am, then"),
+        ("the meeting is at three p m", "the meeting is at 3 pm"),
         ("the deadline is twelve noon", "the deadline is noon"),
         ("it ends at twelve midnight.", "it ends at midnight."),
         ("twelve nooners", "12 nooners"),
         ("five a day", "five a day"),
         ("plan a m", "plan a m"),
-        ("at seven a m e s t", "at 7 a.m. EST"),
-        ("at eleven forty a m g m t.", "at 11:40 a.m. GMT."),
+        ("at seven a m e s t", "at 7 am EST"),
+        ("at eleven forty a m g m t.", "at 11:40 am GMT."),
         ("call a b c now", "call a b c now"),
         ("the e s t office", "the e s t office"),
         ("...", "..."),
@@ -148,7 +148,7 @@ fn format_line_keeps_ambiguous_runs_as_words() {
         ("it's 5 thirty", "it's 5 thirty"),
         ("twenty 5", "twenty 5"),
         ("room 5 is open", "room 5 is open"),
-        ("at five thirty pm", "at 5:30 p.m."),
+        ("at five thirty pm", "at 5:30 pm"),
         ("she finished third", "she finished third"),
         ("she's in fifth grade", "she's in fifth grade"),
         ("we live on the ninth floor", "we live on the ninth floor"),
@@ -203,6 +203,58 @@ fn format_line_keeps_ambiguous_runs_as_words() {
         ("twelve million dollars", "$12 million"),
     ];
     for (input, want) in cases {
+        let mut got = String::new();
+        format_line(&engine, input, &mut got);
+        assert_eq!(got, want, "{input:?}");
+    }
+}
+
+#[test]
+fn single_digits_style_writes_lone_numbers_as_digits_and_keeps_ordinals() {
+    let ap = engine();
+    let digits = Engine::new(clm_itn::english()).with_single_digits(true);
+    let cases = [
+        ("like eight years", "like eight years", "like 8 years"),
+        (
+            "track two and track three",
+            "track two and track three",
+            "track 2 and track 3",
+        ),
+        (
+            "from three to five pm",
+            "from three to 5 pm",
+            "from 3 to 5 pm",
+        ),
+        ("so three.", "so three.", "so 3."),
+        ("do one and two", "do one and two", "do 1 and 2"),
+        (
+            "fix eleven, twelve, and thirteen",
+            "fix 11, 12, and 13",
+            "fix 11, 12, and 13",
+        ),
+        (
+            "she finished third",
+            "she finished third",
+            "she finished third",
+        ),
+        ("twenty five people", "25 people", "25 people"),
+    ];
+    for (input, want_ap, want_digits) in cases {
+        for (e, want) in [(&ap, want_ap), (&digits, want_digits)] {
+            let mut got = String::new();
+            format_line(e, input, &mut got);
+            assert_eq!(got, want, "{input:?}");
+        }
+    }
+}
+
+#[test]
+fn an_ordinal_after_code_stays_a_word() {
+    let engine = engine();
+    for (input, want) in [
+        ("review of the code first", "review of the code first"),
+        ("code four oh two", "code 402"),
+    ] {
         let mut got = String::new();
         format_line(&engine, input, &mut got);
         assert_eq!(got, want, "{input:?}");

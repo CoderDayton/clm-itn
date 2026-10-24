@@ -1,6 +1,7 @@
 mod eval;
 mod lines;
 mod pairs;
+mod spell;
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -27,13 +28,14 @@ fn number_word(t: &clm_itn::Tables, w: &str) -> bool {
     word_role(t, w) == WordRole::Number
 }
 
-const USAGE: &str = "usage: clm-eval <dir with test_cases_*.txt> | --pairs <pairgen split file> | --lines <spoken TAB written [TAB tag] file> [--tag <t>] [--all-failures]";
+const USAGE: &str = "usage: clm-eval <dir with test_cases_*.txt> | --pairs <pairgen split file> | --lines <spoken TAB written [TAB tag] file> [--tag <t>] [--all-failures] [--single-digits] | --spell <id TAB raw TAB final file>";
 
 fn main() -> ExitCode {
     let dir = match pairs::parse_args(std::env::args().skip(1)) {
         Ok(pairs::Mode::Cases(dir)) => dir,
         Ok(pairs::Mode::Pairs { path, isolated }) => return run_pairs(&path, isolated),
         Ok(pairs::Mode::Lines(opts)) => return run_lines(&opts),
+        Ok(pairs::Mode::Spell(path)) => return spell::run(&path),
         Err(e) => {
             eprintln!("{e}");
             return ExitCode::from(2);
@@ -89,7 +91,7 @@ fn run_lines(opts: &pairs::LinesOpts) -> ExitCode {
         }
     };
     let (cases, malformed) = lines::parse_lines(&text);
-    let engine = Engine::new(clm_itn::english());
+    let engine = Engine::new(clm_itn::english()).with_single_digits(opts.single_digits);
     let mut tally = lines::LineTally {
         all_failures: opts.all_failures,
         ..lines::LineTally::default()

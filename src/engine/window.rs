@@ -358,10 +358,18 @@ fn words_first(t: &Tables, core: &str) -> bool {
     (t.words_first[(c >> 6) % WORDS_FIRST_WORDS] >> (c & 63)) & 1 == 1
 }
 
+fn digit_word(engine: &Engine, core: &str) -> bool {
+    let t = engine.tables();
+    let info = t.lexicon.lookup(core.as_bytes());
+    engine.single_digits()
+        && engine.is_digit_word(info.canonical, t.role_of[info.class as usize] & 0x0F)
+}
+
 fn format_segment(engine: &Engine, words: &[Word], out: &mut String) {
     let t = engine.tables();
     if let [only] = words
         && words_first(t, only.core)
+        && !digit_word(engine, only.core)
     {
         out.push_str(only.core);
         return;

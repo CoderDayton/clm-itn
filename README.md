@@ -3,7 +3,7 @@
 Inverse text normalization for English: spoken-form tokens in, written form out.
 
 ```text
-meet me at five thirty pm in room four oh two  →  meet me at 5:30 p.m. in room 402
+meet me at five thirty pm in room four oh two  →  meet me at 5:30 pm in room 402
 the twenty first of june costs two thousand five dollars  →  the 21st of june costs $2005
 january eighth eighteen fifteen  →  January 8, 1815
 ```
@@ -59,6 +59,8 @@ Command line, one sentence per line:
 echo "at five thirty pm" | cargo run --release --bin clm-itn
 ```
 
+Two number styles. The default follows AP: a lone single number stays a word ("she has two cats", "eight years"). `--single-digits` also writes lone single numbers as digits ("2 cats", "8 years"), as Whisper does. In code: `Engine::new(tables).with_single_digits(true)`.
+
 Library:
 
 ```rust
@@ -72,7 +74,7 @@ let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
 let done = engine
     .format(&tokens, &mut out, &mut receipts)
     .expect("4 tokens fit in 256 bytes");
-assert_eq!(&out[..done.len], b"at 5:30 p.m.");
+assert_eq!(&out[..done.len], b"at 5:30 pm");
 ```
 
 - Input is spoken-form text, one sentence per line, lowercase or cased. Digits already in the input pass through unchanged.
