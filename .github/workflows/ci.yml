@@ -33,3 +33,22 @@ jobs:
 
       - name: Run lint-ci
         run: cargo script lint-ci
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-run
+        run: cargo install cargo-run --version 0.6.0 --locked
+
+      - name: Run test
+        run: cargo script test
+
+      - name: Ring stress test (release)
+        run: "cargo test --release --lib learn::ring::"

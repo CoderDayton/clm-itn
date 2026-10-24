@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "clam-itn"
+name = "clm-itn"
 version = "0.1.0"

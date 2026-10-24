@@ -1,7 +1,9 @@
 [package]
-name = "clam-itn"
+name = "clm-itn"
 version = "0.1.0"
 edition = "2024"
 authors = ["vii (CoderDayton)"]
+license = "Apache-2.0"
+default-run = "clm-itn"
 
 [dependencies]

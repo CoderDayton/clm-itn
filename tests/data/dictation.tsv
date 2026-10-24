@@ -1,0 +1,359 @@
+five pm	5 p.m.	time
+at five thirty pm	at 5:30 p.m.	time
+the meeting is at ten thirty am	the meeting is at 10:30 a.m.	time
+call me at seven fifteen tonight	call me at 7:15 tonight	time
+i get up at six am	i get up at 6 a.m.	time
+lunch is at twelve thirty	lunch is at 12:30	time
+the train leaves at nine forty five am	the train leaves at 9:45 a.m.	time
+let's meet at three o'clock	let's meet at 3 o'clock	time
+it starts at eight o'clock sharp	it starts at 8 o'clock sharp	time
+i'll be home by eleven pm	i'll be home by 11 p.m.	time
+the store opens at nine am	the store opens at 9 a.m.	time
+the flight lands at four twenty pm	the flight lands at 4:20 p.m.	time
+dinner at seven thirty	dinner at 7:30	time
+pick me up at two pm	pick me up at 2 p.m.	time
+the call is at one pm eastern	the call is at 1 p.m. eastern	time
+set an alarm for six forty five am	set an alarm for 6:45 a.m.	time
+the show starts at eight pm	the show starts at 8 p.m.	time
+we close at five thirty	we close at 5:30	time
+it's five thirty	it's 5:30	time!
+the bus comes at ten oh five	the bus comes at 10:05	time
+the deadline is twelve noon	the deadline is noon	time!
+the party ends at twelve midnight	the party ends at midnight	time!
+meet me at half past four	meet me at 4:30	time!
+the class starts at a quarter past nine	the class starts at 9:15	time!
+we left at ten pm	we left at 10 p.m.	time
+the appointment is at eleven fifteen am	the appointment is at 11:15 a.m.	time
+we work from nine am to five pm	we work from 9 a.m. to 5 p.m.	time
+call between two and four pm	call between 2 and 4 p.m.	time!
+i woke up at five am	i woke up at 5 a.m.	time
+the kickoff is at seven pm	the kickoff is at 7 p.m.	time
+at three fifteen we'll start	at 3:15 we'll start	time
+it is ten o'clock	it is 10 o'clock	time
+see you at eight	see you at 8	time!
+the webinar is at two thirty pm	the webinar is at 2:30 p.m.	time
+check out is at eleven am	check out is at 11 a.m.	time
+the alarm went off at four am	the alarm went off at 4 a.m.	time
+my shift starts at six thirty am	my shift starts at 6:30 a.m.	time
+the store closes at nine pm	the store closes at 9 p.m.	time
+the meeting is at three p m	the meeting is at 3 p.m.	time
+we start at nine a m	we start at 9 a.m.	time
+the movie starts at seven forty	the movie starts at 7:40	time
+i'll call you at four	i'll call you at 4	time!
+i'll be there in five minutes	i'll be there in five minutes	duration
+wait ten minutes	wait 10 minutes	duration
+it took two hours	it took two hours	duration
+it took forty five minutes	it took 45 minutes	duration
+the timer is thirty seconds	the timer is 30 seconds	duration
+we waited three days	we waited three days	duration
+it lasted fifteen years	it lasted 15 years	duration
+the course runs for twelve weeks	the course runs for 12 weeks	duration
+about twenty minutes left	about 20 minutes left	duration
+the drive is seventy two hours	the drive is 72 hours	duration
+we stayed fourteen days	we stayed 14 days	duration
+eight hours of sleep	eight hours of sleep	duration
+on may fifth	on May 5	date
+my birthday is june twenty first	my birthday is June 21	date
+the deadline is january fifteenth	the deadline is January 15	date
+on march third	on March 3	date
+we fly out on august tenth	we fly out on August 10	date
+it's due september thirtieth	it's due September 30	date
+on december twenty fifth	on December 25	date
+it opens october first twenty twenty six	it opens October 1, 2026	date
+born on july fourth nineteen ninety	born on July 4, 1990	date
+the contract started february first twenty twenty four	the contract started February 1, 2024	date
+on april twelfth	on April 12	date
+in june twenty twenty five	in June 2025	date
+since november nineteen ninety nine	since November 1999	date
+the launch is on may twenty second	the launch is on May 22	date
+let's meet on june third	let's meet on June 3	date
+november eleventh is a holiday	November 11 is a holiday	date
+the report is due friday march seventh	the report is due friday March 7	date!
+on july first	on July 1	date
+the lease ends august thirty first twenty twenty seven	the lease ends August 31, 2027	date
+we moved on january second	we moved on January 2	date
+the party is on the fifth of may	the party is on the fifth of may	date!
+it starts the first of june	it starts the first of june	date!
+we celebrate the fourth of july	we celebrate the fourth of july	date!
+rent is due on the fifteenth	rent is due on the 15th	date!
+see you on the third	see you on the third	date
+it ships in april twenty twenty six	it ships in April 2026	date
+on december thirty first at midnight	on December 31 at midnight	date!
+the event is on october twenty eighth	the event is on October 28	date
+school starts september second	school starts September 2	date
+the trial began march fifteenth twenty twenty	the trial began March 15, 2020	date
+it's five dollars	it's $5	money
+it costs twenty dollars	it costs $20	money
+it was five dollars and fifty cents	it was $5.50	money
+it costs fifty cents	it costs 50 cents	money
+the fee is seventy five cents	the fee is 75 cents	money
+we paid twelve hundred dollars	we paid $1200	money
+the repair was two thousand five hundred dollars	the repair was $2500	money
+give me a hundred dollars	give me $100	money
+it costs a thousand dollars	it costs $1000	money!
+the house sold for five hundred thousand dollars	the house sold for $500000	money
+the prize is one million dollars	the prize is $1 million	money
+they raised five million dollars	they raised $5 million	money
+the deal is two point five million dollars	the deal is $2.5 million	money
+a three billion dollar budget	a $3 billion budget	money
+the rent is fifteen hundred dollars a month	the rent is $1500 a month	money
+i paid forty dollars for it	i paid $40 for it	money
+it's ninety nine cents	it's 99 cents	money
+the total is ten dollars and five cents	the total is $10.05	money
+it's one dollar	it's $1	money
+coffee is a dollar fifty	coffee is $1.50	money!
+lend me twenty bucks	lend me 20 bucks	money!
+it costs five euros	it costs 5 euros	money
+the budget is ten thousand dollars	the budget is $10000	money
+we raised two hundred fifty thousand dollars	we raised $250000	money
+he got a three hundred dollar fine	he got a $300 fine	money
+it's a five dollar bill	it's a $5 bill	money
+the ticket was sixty five dollars	the ticket was $65	money
+add eight dollars for shipping	add $8 for shipping	money
+the price went up by two dollars	the price went up by $2	money
+i'd love a million dollars	i'd love a million dollars	money!
+she makes twenty five thousand dollars a year	she makes $25000 a year	money
+he owes me thirty dollars	he owes me $30	money
+the bill came to eighty seven dollars and twenty cents	the bill came to $87.20	money
+a nine dollar sandwich	a $9 sandwich	money
+i have three kids	i have three kids	count
+we have twelve people coming	we have 12 people coming	count
+about fifty people showed up	about 50 people showed up	count
+i sent two hundred emails	i sent 200 emails	count
+there are fifteen hundred students	there are 1500 students	count
+the stadium held twenty five thousand fans	the stadium held 25000 fans	count
+two million people live there	2 million people live there	count!
+the app has one point five million users	the app has 1.5 million users	count
+the team has eleven players	the team has 11 players	count
+she owns nine cats	she owns nine cats	count
+we need ten chairs	we need 10 chairs	count
+order thirty six boxes	order 36 boxes	count
+she has three sons and two daughters	she has three sons and two daughters	count
+i read twenty books this year	i read 20 books this year	count
+we got one hundred and five votes	we got 105 votes	count
+the video has three hundred thousand views	the video has 300000 views	count
+it has ten thousand reviews	it has 10000 reviews	count
+we expect between five and ten people	we expect between five and 10 people	count!
+twelve or thirteen kids came	12 or 13 kids came	count!
+i tried two or three times	i tried two or three times	count
+the cart has nineteen items	the cart has 19 items	count
+there were ninety nine problems	there were 99 problems	count
+add six eggs	add six eggs	count
+the answer is forty two	the answer is 42	count
+a meal with eight hundred calories	a meal with 800 calories	count
+i walked one thousand two hundred thirty four steps	i walked 1234 steps	count
+we hired fourteen new people	we hired 14 new people	count
+there are four hundred fifty seats	there are 450 seats	count
+the sale is five percent off	the sale is 5% off	percent
+the rate is three point five percent	the rate is 3.5%	percent
+i'm one hundred percent sure	i'm 100% sure	percent!
+fifty percent off everything	50% off everything	percent
+the tax is twelve percent	the tax is 12%	percent
+i'm a hundred percent done	i'm a hundred percent done	percent!
+a fee of point five percent	a fee of 0.5%	percent!
+an interest rate of two percent	an interest rate of 2%	percent
+uptime was ninety nine point nine percent	uptime was 99.9%	percent
+sales are up twenty percent from last year	sales are up 20% from last year	percent
+seventy five percent of users agree	75% of users agree	percent!
+zero percent financing	0% financing	percent
+it dropped by eight percent	it dropped by 8%	percent
+leave a fifteen percent tip	leave a 15% tip	percent
+about thirty three percent	about 33%	percent
+the battery is at nine percent	the battery is at 9%	percent
+i ran five miles	i ran 5 miles	unit
+he is six feet tall	he is 6 feet tall	unit
+we got three inches of snow	we got 3 inches of snow	unit
+it weighs twenty five pounds	it weighs 25 pounds	unit
+buy two pounds of flour	buy 2 pounds of flour	unit
+the box is ten kilograms	the box is 10 kilograms	unit
+i signed up for a five kilometer run	i signed up for a 5-kilometer run	unit!
+it's sixty degrees outside	it's 60 degrees outside	unit
+it's ninety five degrees	it's 95 degrees	unit
+it was minus five degrees	it was minus 5 degrees	unit!
+drink two liters of water	drink 2 liters of water	unit
+add five hundred grams	add 500 grams	unit
+set it to seventy two degrees fahrenheit	set it to 72 degrees Fahrenheit	unit!
+a twelve ounce can	a 12-ounce can	unit!
+it's thirty miles away	it's 30 miles away	unit
+the table is four feet wide	the table is 4 feet wide	unit
+cut it to nine inches	cut it to 9 inches	unit
+he drove sixty miles per hour	he drove 60 mph	unit!
+the speed limit is twenty five miles per hour	the speed limit is 25 mph	unit!
+the phone has eight gigabytes of memory	the phone has 8 gigabytes of memory	unit!
+add three cups of flour	add 3 cups of flour	unit!
+add two tablespoons of sugar	add 2 tablespoons of sugar	unit!
+the room is four hundred square feet	the room is 400 square feet	unit
+grow ten centimeters	grow 10 centimeters	unit
+the store is a mile away	the store is a mile away	unit
+we walked half a mile	we walked half a mile	unit
+she is five foot ten	she is 5-foot-10	unit!
+the lake is two hundred meters deep	the lake is 200 meters deep	unit
+it's four thousand miles away	it's 4000 miles away	unit
+in the twenty first century	in the 21st century	ordinal
+she finished third	she finished third	ordinal
+he's in tenth grade	he's in 10th grade	ordinal
+my thirtieth birthday	my 30th birthday	ordinal
+for the hundredth time	for the 100th time	ordinal
+he came in second place	he came in second place	ordinal
+our twenty fifth anniversary	our 25th anniversary	ordinal
+the office is on the eleventh floor	the office is on the 11th floor	ordinal
+she's in fifth grade	she's in fifth grade	ordinal
+the fifteenth time this week	the 15th time this week	ordinal
+the first time i saw it	the first time i saw it	ordinal
+we live on the ninth floor	we live on the ninth floor	ordinal
+his fortieth birthday party	his 40th birthday party	ordinal
+his twelfth book	his 12th book	ordinal
+their fiftieth anniversary	their 50th anniversary	ordinal
+she placed thirty second overall	she placed 32nd overall	ordinal
+in nineteen ninety eight	in 1998	year
+in twenty twenty five	in 2025	year
+back in two thousand eight	back in 2008	year
+since two thousand	since 2000	year!
+music from the nineteen nineties	music from the 1990s	year
+music from the eighties	music from the '80s	year!
+built in nineteen oh five	built in 1905	year
+by twenty thirty	by 2030	year
+in two thousand and ten	in 2010	year
+the class of twenty twenty four	the class of 2024	year
+from twenty nineteen to twenty twenty two	from 2019 to 2022	year
+the war ended in eighteen sixty five	the war ended in 1865	year
+houses from the eighteen hundreds	houses from the 1800s	year!
+twenty twenty was a strange year	2020 was a strange year	year!
+she is five years old	she is 5 years old	age
+my son is seven	my son is seven	age!
+a five year old boy	a 5-year-old boy	age!
+he turned forty	he turned 40	age
+she is in her forties	she is in her 40s	age
+the woman is thirty five	the woman is 35	age!
+our dog is twelve years old	our dog is 12 years old	age
+a thirty year old man	a 30-year-old man	age!
+it got a three point five rating	it got a 3.5 rating	decimal
+zero point two seconds faster	0.2 seconds faster	decimal
+install version two point one	install version 2.1	decimal
+it has four point seven stars	it has 4.7 stars	decimal
+it grew one point two five times	it grew 1.25 times	decimal
+a two point four gigahertz band	a 2.4 gigahertz band	decimal!
+one of them is broken	one of them is broken	keep
+at first i didn't like it	at first i didn't like it	keep
+give me a couple of days	give me a couple of days	keep
+first of all thank you	first of all thank you	keep
+one day we will go	one day we will go	keep
+no one knows	no one knows	keep
+one more thing before you go	one more thing before you go	keep
+it was the first time	it was the first time	keep
+i'll second that	i'll second that	keep
+there is a third option	there is a third option	keep
+two of us can go	two of us can go	keep
+hundreds of people came	hundreds of people came	keep
+thousands of fans cheered	thousands of fans cheered	keep
+it took millions of years	it took millions of years	keep
+one or two people	one or two people	keep
+on the one hand it's cheap	on the one hand it's cheap	keep
+check them one by one	check them one by one	keep
+which one do you want	which one do you want	keep
+this one is better	this one is better	keep
+that's the one i want	that's the one i want	keep
+thanks a million	thanks a million	keep
+i told you a hundred times	i told you a hundred times	keep!
+once or twice a week	once or twice a week	keep
+wait a second	wait a second	keep
+first come first served	first come first served	keep
+we're open seven days a week	we're open seven days a week	keep
+three things to remember	three things to remember	keep
+two weeks ago	two weeks ago	keep
+i called four times	i called four times	keep
+it got five stars	it got five stars	keep
+six of one half a dozen of the other	six of one half a dozen of the other	keep
+it's one thing to say it	it's one thing to say it	keep
+one at a time please	one at a time please	keep
+in the second half	in the second half	keep
+at first glance	at first glance	keep
+first and foremost	first and foremost	keep
+the first one is free	the first one is free	keep
+one way or another	one way or another	keep
+buy a dozen eggs	buy a dozen eggs	keep
+there's zero chance	there's zero chance	keep!
+two heads are better than one	two heads are better than one	keep
+the two of them left	the two of them left	keep
+i have one question	i have one question	keep
+it arrived in one piece	it arrived in one piece	keep
+back to square one	back to square one	keep
+i'm on cloud nine	i'm on cloud nine	keep
+give me one sec	give me one sec	keep
+they help one another	they help one another	keep
+i bought it second hand	i bought it second hand	keep
+results for the third quarter	results for the third quarter	keep
+it was my first job	it was my first job	keep
+get a second opinion	get a second opinion	keep
+she's one in a million	she's one in a million	keep
+i have a million things to do	i have a million things to do	keep
+the three of us went	the three of us went	keep
+take the first exit	take the first exit	keep
+it's a one way street	it's a one way street	keep
+call a third party	call a third party	keep
+the office is on the second floor	the office is on the second floor	keep
+two years ago today	two years ago today	keep
+in three months	in three months	keep
+a couple hundred people	a couple hundred people	keep!
+we split it two ways	we split it two ways	keep
+for the first and last time	for the first and last time	keep
+she was first in line	she was first in line	keep
+he ranked second	he ranked second	keep
+a few of the ones i like	a few of the ones i like	keep
+it's fifty fifty	it's fifty fifty	trap_pair!
+it's a fifty fifty split	it's a fifty fifty split	trap_pair!
+one fifth of the pie	one fifth of the pie	trap_fraction!
+one fifth	one fifth	trap_fraction!
+two thirds of voters agree	two thirds of voters agree	trap_fraction!
+a third of the money	a third of the money	trap_fraction
+it's three quarters full	it's three quarters full	trap_fraction
+it was twenty uh five	it was twenty uh five	trap_filler!
+it costs twenty um five dollars	it costs twenty um five dollars	trap_filler!
+i need uh twenty five copies	i need uh 25 copies	trap_filler
+um twenty five dollars	um $25	trap_filler
+it's like twenty uh twenty five people	it's like twenty uh 25 people	trap_filler!
+he rolled twenty fives	he rolled twenty fives	trap_plural
+give me four fives	give me four fives	trap_plural
+in the eighteen hundreds	in the 1800s	trap_plural!
+it cost hundreds of dollars	it cost hundreds of dollars	trap_plural
+she's in her twenties	she's in her 20s	trap_plural
+it's 5 thirty	it's 5:30	trap_mixed!
+meet at 5 thirty pm	meet at 5:30 p.m.	trap_mixed!
+it's twenty 5 dollars	it's twenty 5 dollars	trap_mixed!
+we march five miles a day	we march 5 miles a day	trap_month_verb
+it may first be noticed	it may first be noticed	trap_month_verb
+you may one day understand	you may one day understand	trap_month_verb
+they march ten miles	they march 10 miles	trap_month_verb
+the race is may fifth	the race is May 5	trap_month_verb
+he was the first	he was the first	trap_edge
+five	five	trap_edge!
+First, we go home.	First, we go home.	punct
+Second, check the logs.	Second, check the logs.	punct
+One, two, three, go.	One, two, three, go.	punct
+At five p.m., we leave.	At 5 p.m., we leave.	punct
+It costs twenty dollars.	It costs $20.	punct
+The meeting is at ten thirty a.m.	The meeting is at 10:30 a.m.	punct
+We have twelve people, maybe thirteen.	We have 12 people, maybe 13.	punct
+On May fifth, we launch.	On May 5, we launch.	punct
+Call me at seven.	Call me at 7.	punct!
+I ran five miles today.	I ran 5 miles today.	punct
+It's fifty percent off.	It's 50% off.	punct
+She's in tenth grade.	She's in 10th grade.	punct
+Twenty five people came.	Twenty five people came.	punct!
+In twenty twenty, things changed.	In 2020, things changed.	punct
+At first, nobody came.	At first, nobody came.	punct
+May fifth works for me.	May 5 works for me.	punct
+It may first seem odd.	It may first seem odd.	punct
+Uh, twenty five, I think.	Uh, 25, I think.	punct
+That's a fifty fifty chance.	That's a fifty fifty chance.	punct!
+One fifth of the class failed.	One fifth of the class failed.	punct!
+The rent is twelve hundred dollars, due monthly.	The rent is $1200, due monthly.	punct
+We meet on June third, at noon.	We meet on June 3, at noon.	punct
+Version two point one is out.	Version 2.1 is out.	punct
+It's ninety degrees, so stay inside.	It's 90 degrees, so stay inside.	punct
+Oh, one more thing.	Oh, one more thing.	punct
+Is it twenty-five or thirty?	Is it 25 or 30?	punct!
+I paid twenty-five dollars.	I paid $25.	punct
+The flight is at six forty-five a.m.	The flight is at 6:45 a.m.	punct!
+Ten minutes, then we start.	Ten minutes, then we start.	punct!
+Wait, is it five or six?	Wait, is it five or six?	punct
