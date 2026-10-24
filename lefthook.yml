@@ -1,0 +1,13 @@
+pre-commit:
+  commands:
+    lint:
+      glob: "*.rs"
+      run: cargo script lint-ci
+
+pre-push:
+  piped: true
+  commands:
+    lint:
+      run: cargo script lint-ci
+    test:
+      run: cargo script test
