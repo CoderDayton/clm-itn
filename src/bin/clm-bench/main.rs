@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 use clm_itn::engine::Engine;
 use clm_itn::format_line;
-use clm_itn::types::{MAX_TOKENS, SpanReceipt};
+use clm_itn::types::MAX_TOKENS;
 
 const OUT_BYTES: usize = 256;
 const P99_LIMIT_NS: f64 = 1000.0;
@@ -42,12 +42,11 @@ fn main() -> ExitCode {
     let mut ticks = vec![0u32; n];
     let mut buf: [&[u8]; MAX_TOKENS] = [&[]; MAX_TOKENS];
     let mut out = [0u8; OUT_BYTES];
-    let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
     println!("corpus:         {n} utterances, seed {}", args.seed);
 
     for i in 0..n {
         let k = corpus.utterance(i, &mut buf);
-        let _ = black_box(engine.format(&buf[..k], &mut out, &mut receipts));
+        let _ = black_box(engine.format(&buf[..k], &mut out));
     }
 
     let mut errors = 0usize;
@@ -55,7 +54,7 @@ fn main() -> ExitCode {
     for (i, slot) in ticks.iter_mut().enumerate() {
         let k = corpus.utterance(i, &mut buf);
         let t0 = clock::start();
-        let r = engine.format(black_box(&buf[..k]), &mut out, &mut receipts);
+        let r = engine.format(black_box(&buf[..k]), &mut out);
         let t1 = clock::end();
         errors += usize::from(black_box(r).is_err());
         *slot = replay::net_ticks(t0, t1, overhead);
@@ -232,7 +231,6 @@ fn print_header(ns_per_tick: f64, overhead: u64, gate: bool) {
 fn print_samples(engine: &Engine, corpus: &corpus::Corpus) {
     let mut buf: [&[u8]; MAX_TOKENS] = [&[]; MAX_TOKENS];
     let mut out = [0u8; OUT_BYTES];
-    let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
     let mut seen = Vec::new();
     let picks = (0..corpus.len()).filter(|&i| {
         let c = corpus.category(i);
@@ -245,7 +243,7 @@ fn print_samples(engine: &Engine, corpus: &corpus::Corpus) {
         let k = corpus.utterance(i, &mut buf);
         let input = join(&buf[..k]);
         let cat = corpus.category(i);
-        match engine.format(&buf[..k], &mut out, &mut receipts) {
+        match engine.format(&buf[..k], &mut out) {
             Ok(f) => println!(
                 "sample {i}:       [{cat:?}] {input:?} -> {:?}",
                 String::from_utf8_lossy(&out[..f.len])

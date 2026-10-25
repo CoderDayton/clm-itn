@@ -1,5 +1,5 @@
 use crate::tables::Aligned;
-use crate::types::{CLASS_UNKNOWN, CanonicalId, ClassId, MAX_KEY_LEN, MAX_TOKENS, TokenInfo};
+use crate::types::{CLASS_UNKNOWN, MAX_KEY_LEN, MAX_TOKENS, TokenInfo};
 
 pub const BUCKETS: usize = 1024;
 pub const SLOTS_PER_BUCKET: usize = 4;
@@ -47,10 +47,6 @@ const MISS: TokenInfo = TokenInfo {
     canonical: 0,
     class: CLASS_UNKNOWN,
 };
-const EMPTY_SLOT: u32 = u32::MAX;
-const MAX_KICKS: usize = 1024;
-const MAX_SEEDS: usize = 256;
-const SEED_STATE: u64 = 0x434C_414D_2D49_544E;
 
 #[inline(always)]
 pub fn fold_key(token: &[u8]) -> Option<Key> {
@@ -140,82 +136,97 @@ fn decode(payload: u32) -> TokenInfo {
     }
 }
 
-fn place_all(keys: &[Key], seed: u64, slots: &mut [u32]) -> bool {
-    slots.fill(EMPTY_SLOT);
-    let mut rng = seed ^ SEED_STATE;
-    for start in 0..keys.len() {
-        let mut cur = start as u32;
-        let mut from = usize::MAX;
-        let mut placed = false;
-        for _ in 0..MAX_KICKS {
-            let (b1, b2) = bucket_pair(&keys[cur as usize], seed, BUCKETS);
-            let free = [b1, b2].into_iter().find_map(|b| {
-                let base = b * SLOTS_PER_BUCKET;
-                (base..base + SLOTS_PER_BUCKET).find(|&s| slots[s] == EMPTY_SLOT)
-            });
-            if let Some(s) = free {
-                slots[s] = cur;
-                placed = true;
-                break;
+#[cfg(not(clm_no_std))]
+mod build {
+    use super::{
+        BUCKETS, Bucket, BuildError, Key, Lexicon, SLOTS, SLOTS_PER_BUCKET, bucket_pair, fold_key,
+    };
+    use crate::types::{CLASS_UNKNOWN, CanonicalId, ClassId};
+
+    const EMPTY_SLOT: u32 = u32::MAX;
+    const MAX_KICKS: usize = 1024;
+    const MAX_SEEDS: usize = 256;
+    const SEED_STATE: u64 = 0x434C_414D_2D49_544E;
+
+    fn place_all(keys: &[Key], seed: u64, slots: &mut [u32]) -> bool {
+        slots.fill(EMPTY_SLOT);
+        let mut rng = seed ^ SEED_STATE;
+        for start in 0..keys.len() {
+            let mut cur = start as u32;
+            let mut from = usize::MAX;
+            let mut placed = false;
+            for _ in 0..MAX_KICKS {
+                let (b1, b2) = bucket_pair(&keys[cur as usize], seed, BUCKETS);
+                let free = [b1, b2].into_iter().find_map(|b| {
+                    let base = b * SLOTS_PER_BUCKET;
+                    (base..base + SLOTS_PER_BUCKET).find(|&s| slots[s] == EMPTY_SLOT)
+                });
+                if let Some(s) = free {
+                    slots[s] = cur;
+                    placed = true;
+                    break;
+                }
+                let r = crate::hash::next_seed(&mut rng);
+                let target = match from {
+                    f if f == b1 => b2,
+                    f if f == b2 => b1,
+                    _ if r & 1 == 0 => b1,
+                    _ => b2,
+                };
+                let s = target * SLOTS_PER_BUCKET + (r >> 1) as usize % SLOTS_PER_BUCKET;
+                cur = core::mem::replace(&mut slots[s], cur);
+                from = target;
             }
-            let r = crate::hash::next_seed(&mut rng);
-            let target = match from {
-                f if f == b1 => b2,
-                f if f == b2 => b1,
-                _ if r & 1 == 0 => b1,
-                _ => b2,
-            };
-            let s = target * SLOTS_PER_BUCKET + (r >> 1) as usize % SLOTS_PER_BUCKET;
-            cur = core::mem::replace(&mut slots[s], cur);
-            from = target;
+            if !placed {
+                return false;
+            }
         }
-        if !placed {
-            return false;
+        true
+    }
+
+    impl Lexicon {
+        pub fn build(entries: &[(&[u8], CanonicalId, ClassId)]) -> Result<Lexicon, BuildError> {
+            let mut keys = Vec::with_capacity(entries.len());
+            let mut seen = std::collections::HashSet::with_capacity(entries.len());
+            for (index, &(token, _, class)) in entries.iter().enumerate() {
+                let key = fold_key(token).ok_or(BuildError::InvalidLength { index })?;
+                if class <= CLASS_UNKNOWN {
+                    return Err(BuildError::ReservedClass { index });
+                }
+                if !seen.insert(key) {
+                    return Err(BuildError::Duplicate { index });
+                }
+                keys.push(key);
+            }
+            if keys.len() > SLOTS {
+                return Err(BuildError::TooManyEntries);
+            }
+
+            let mut slots = vec![EMPTY_SLOT; SLOTS];
+            let mut state = SEED_STATE;
+            for _ in 0..MAX_SEEDS {
+                let seed = crate::hash::next_seed(&mut state);
+                if !place_all(&keys, seed, &mut slots) {
+                    continue;
+                }
+                let mut buckets = [Bucket::EMPTY; BUCKETS];
+                let mut payload = [0u32; SLOTS];
+                for (s, &e) in slots.iter().enumerate() {
+                    if e == EMPTY_SLOT {
+                        continue;
+                    }
+                    let (_, canonical, class) = entries[e as usize];
+                    buckets[s / SLOTS_PER_BUCKET].keys[s % SLOTS_PER_BUCKET] = keys[e as usize];
+                    payload[s] = u32::from(canonical) | (u32::from(class) << 16);
+                }
+                return Ok(Lexicon::from_raw(buckets, payload, seed));
+            }
+            Err(BuildError::NoSeed)
         }
     }
-    true
 }
 
 impl Lexicon {
-    pub fn build(entries: &[(&[u8], CanonicalId, ClassId)]) -> Result<Lexicon, BuildError> {
-        let mut keys = Vec::with_capacity(entries.len());
-        let mut seen = std::collections::HashSet::with_capacity(entries.len());
-        for (index, &(token, _, class)) in entries.iter().enumerate() {
-            let key = fold_key(token).ok_or(BuildError::InvalidLength { index })?;
-            if class <= CLASS_UNKNOWN {
-                return Err(BuildError::ReservedClass { index });
-            }
-            if !seen.insert(key) {
-                return Err(BuildError::Duplicate { index });
-            }
-            keys.push(key);
-        }
-        if keys.len() > SLOTS {
-            return Err(BuildError::TooManyEntries);
-        }
-
-        let mut slots = vec![EMPTY_SLOT; SLOTS];
-        let mut state = SEED_STATE;
-        for _ in 0..MAX_SEEDS {
-            let seed = crate::hash::next_seed(&mut state);
-            if !place_all(&keys, seed, &mut slots) {
-                continue;
-            }
-            let mut buckets = [Bucket::EMPTY; BUCKETS];
-            let mut payload = [0u32; SLOTS];
-            for (s, &e) in slots.iter().enumerate() {
-                if e == EMPTY_SLOT {
-                    continue;
-                }
-                let (_, canonical, class) = entries[e as usize];
-                buckets[s / SLOTS_PER_BUCKET].keys[s % SLOTS_PER_BUCKET] = keys[e as usize];
-                payload[s] = u32::from(canonical) | (u32::from(class) << 16);
-            }
-            return Ok(Lexicon::from_raw(buckets, payload, seed));
-        }
-        Err(BuildError::NoSeed)
-    }
-
     pub const fn from_raw(buckets: [Bucket; BUCKETS], payload: [u32; SLOTS], seed: u64) -> Self {
         Self {
             buckets,
@@ -288,6 +299,7 @@ impl Lexicon {
 mod tests {
     use super::*;
     use crate::hash::next_seed;
+    use crate::types::{CanonicalId, ClassId};
 
     fn random_words(n: usize, seed: u64) -> Vec<Vec<u8>> {
         let mut state = seed;

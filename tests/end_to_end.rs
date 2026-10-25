@@ -1,24 +1,14 @@
-use clm_itn::engine::Engine;
-use clm_itn::engine::window::format_line;
-use clm_itn::learn::ring::channel;
-use clm_itn::learn::worker::drain;
-use clm_itn::types::{DEFAULT_H, MAX_TOKENS, SpanReceipt};
+use clm_itn::{Engine, format_line};
 
 fn engine() -> Engine<'static> {
-    Engine::new(clm_itn::english())
+    Engine::english()
 }
 
-fn run(engine: &Engine, text: &str) -> (String, Vec<SpanReceipt>) {
+fn run(engine: &Engine, text: &str) -> String {
     let tokens: Vec<&[u8]> = text.split(' ').map(str::as_bytes).collect();
     let mut out = [0u8; 256];
-    let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
-    let done = engine
-        .format(&tokens, &mut out, &mut receipts)
-        .expect("format");
-    (
-        String::from_utf8(out[..done.len].to_vec()).expect("utf8"),
-        receipts[..done.spans].to_vec(),
-    )
+    let done = engine.format(&tokens, &mut out).expect("format");
+    String::from_utf8(out[..done.len].to_vec()).expect("utf8")
 }
 
 #[test]
@@ -41,7 +31,7 @@ fn spoken_to_written() {
     ];
     let mut failures = Vec::new();
     for (input, want) in cases {
-        let got = run(&engine, input).0;
+        let got = run(&engine, input);
         if got != want {
             failures.push(format!("{input:?} -> {got:?}, want {want:?}"));
         }
@@ -212,7 +202,7 @@ fn format_line_keeps_ambiguous_runs_as_words() {
 #[test]
 fn single_digits_style_writes_lone_numbers_as_digits_and_keeps_ordinals() {
     let ap = engine();
-    let digits = Engine::new(clm_itn::english()).with_single_digits(true);
+    let digits = Engine::english().with_style(clm_itn::Style::SingleDigits);
     let cases = [
         ("like eight years", "like eight years", "like 8 years"),
         (
@@ -259,37 +249,4 @@ fn an_ordinal_after_code_stays_a_word() {
         format_line(&engine, input, &mut got);
         assert_eq!(got, want, "{input:?}");
     }
-}
-
-#[test]
-fn corrections_change_only_the_corrected_context() {
-    let engine = engine();
-    let (mut producer, mut consumer) = channel(64);
-    let tokens: [&[u8]; 2] = [b"at", b"five"];
-    assert_eq!(run(&engine, "at five").0, "at 5");
-    for _ in 0..DEFAULT_H {
-        let receipt = run(&engine, "at five").1[0];
-        engine
-            .correct(&mut producer, receipt, &tokens, b"five")
-            .expect("in-set correction");
-        drain(&mut consumer, engine.cells(), DEFAULT_H);
-    }
-    assert_eq!(run(&engine, "at five").0, "at five");
-    assert_eq!(run(&engine, "five").0, "5");
-    assert_eq!(run(&engine, "room four oh two").0, "room 402");
-}
-
-#[test]
-fn out_of_set_correction_learns_nothing() {
-    let engine = engine();
-    let (mut producer, mut consumer) = channel(8);
-    let tokens: [&[u8]; 2] = [b"at", b"five"];
-    let receipt = run(&engine, "at five").1[0];
-    assert!(
-        engine
-            .correct(&mut producer, receipt, &tokens, b"V")
-            .is_err()
-    );
-    assert_eq!(drain(&mut consumer, engine.cells(), DEFAULT_H), 0);
-    assert_eq!(engine.out_of_set(), 1);
 }

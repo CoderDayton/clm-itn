@@ -269,11 +269,10 @@ mod tests {
         let corpus = crate::corpus::Corpus::generate(500, 7);
         let mut buf: [&[u8]; MAX_TOKENS] = [&[]; MAX_TOKENS];
         let (mut a, mut b) = ([0u8; crate::OUT_BYTES], [0u8; crate::OUT_BYTES]);
-        let mut ra = [SpanReceipt::default(); MAX_TOKENS];
         let mut rb = [SpanReceipt::default(); MAX_TOKENS];
         for i in 0..corpus.len() {
             let k = corpus.utterance(i, &mut buf);
-            let want = engine.format(&buf[..k], &mut a, &mut ra);
+            let want = engine.format(&buf[..k], &mut a);
             let got = src.profile(&buf[..k], &mut b, &mut rb);
             assert_eq!(got.is_some(), want.is_ok(), "utterance {i}");
             if let Ok(f) = want {

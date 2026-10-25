@@ -49,6 +49,3 @@ jobs:
 
       - name: Run test
         run: cargo script test
-
-      - name: Ring stress test (release)
-        run: "cargo test --release --lib learn::ring::"

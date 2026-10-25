@@ -2,8 +2,6 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
 use clm_itn::engine::Engine;
-use clm_itn::learn::cell::Cells;
-use clm_itn::types::{MAX_TOKENS, SpanReceipt};
 
 struct Counting;
 
@@ -40,22 +38,41 @@ fn counted<R>(f: impl FnOnce() -> R) -> (R, usize, usize) {
 }
 
 #[test]
-fn engine_on_static_tables_allocates_only_its_cells() {
+fn engine_on_static_tables_allocates_nothing() {
     let (engine, count, bytes) = counted(|| Engine::new(clm_itn::english()));
-    assert_eq!(count, 1, "Engine::new made {count} allocations");
-    assert!(
-        bytes >= size_of::<Cells>() && bytes < size_of::<Cells>() + 128,
-        "{bytes} bytes for Arc<Cells> of {}",
-        size_of::<Cells>()
+    assert_eq!(
+        count, 0,
+        "Engine::new made {count} allocations ({bytes} bytes)"
     );
 
     let tokens: [&[u8]; 4] = [b"at", b"five", b"thirty", b"pm"];
     let mut out = [0u8; 64];
-    let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
-    let (done, count, _) = counted(|| engine.format(&tokens, &mut out, &mut receipts));
+    let (done, count, _) = counted(|| engine.format(&tokens, &mut out));
     assert_eq!(count, 0, "format allocated");
     let done = done.expect("format");
     assert_eq!(&out[..done.len], b"at 5:30 pm");
+}
+
+#[test]
+fn format_line_allocates_a_few_times_per_line() {
+    let engine = Engine::new(clm_itn::english());
+    let mut out = String::with_capacity(512);
+    for (line, limit) in [
+        ("meet me at five thirty pm in room four oh two", 3),
+        ("it was twenty five, then thirty.", 3),
+        ("hello there", 3),
+        (
+            "the twenty first of june costs two thousand five dollars",
+            3,
+        ),
+    ] {
+        out.clear();
+        let (_, count, _) = counted(|| clm_itn::format_line(&engine, line, &mut out));
+        assert!(
+            count <= limit,
+            "{line:?}: {count} allocations, limit {limit}"
+        );
+    }
 }
 
 #[test]

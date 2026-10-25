@@ -8,4 +8,5 @@ release = "cargo build --release"
 test = { command = "cargo test", env = { RUST_LOG = "warn" } }
 doc = "cargo doc --no-deps --open"
 lint = { command = "cargo fmt --all && cargo clippy --all-targets --all-features -- -D warnings", info = "Format code, then run clippy with warnings as errors" }
-lint-ci = { command = "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings", info = "Check formatting without changing files, then run clippy with warnings as errors" }
+lint-ci = { command = "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo script lint-no-std", info = "Check formatting without changing files, then run clippy with warnings as errors, with and without std" }
+lint-no-std = { command = "cargo clippy --lib --no-default-features -- -D warnings && cargo clippy --lib --no-default-features --features alloc -- -D warnings", info = "Run clippy on the no_std and alloc-only library builds" }

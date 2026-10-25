@@ -83,6 +83,7 @@ impl Tables {
         words_first_roles: 0,
     };
 
+    #[cfg(not(clm_no_std))]
     pub fn boxed_empty() -> Box<Tables> {
         let t = Box::<Tables>::new_zeroed();
         // SAFETY: every field of Tables is an integer or an array of integers, so all-zero

@@ -1,9 +1,13 @@
-use crate::builder::english::{
-    ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE, ROLE_SCALE, ROLE_TEEN, ROLE_TENS,
-};
-use crate::engine::Engine;
+use alloc::string::String;
+use alloc::vec::Vec;
+use alloc::{format, vec};
+
+use crate::engine::{Engine, Style};
 use crate::tables::{Tables, WORDS_FIRST_WORDS};
-use crate::types::{CLASS_UNKNOWN, MAX_TOKENS, SpanReceipt};
+use crate::types::{
+    CLASS_UNKNOWN, ClassId, MAX_TOKENS, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE, ROLE_SCALE,
+    ROLE_TEEN, ROLE_TENS,
+};
 
 const LINE_OUT: usize = 512;
 const LEAD_PUNCT: &[char] = &['"', '\'', '(', '[', '{', '\u{201C}', '\u{2018}', '\u{00AB}'];
@@ -16,28 +20,60 @@ fn trail_punct(c: char) -> bool {
     TRAIL_PUNCT.contains(&c)
 }
 
+#[derive(Clone, Copy)]
 struct Word<'a> {
     lead: &'a str,
     core: &'a str,
     trail: &'a str,
+    numeric: bool,
+    value: bool,
+    filler: bool,
+    digits: bool,
 }
 
-fn split_word<'a>(token: &'a str, known: impl Fn(&[u8]) -> bool) -> Word<'a> {
+fn tag_class<'a>(
+    t: &Tables,
+    class: ClassId,
+    lead: &'a str,
+    core: &'a str,
+    trail: &'a str,
+) -> Word<'a> {
+    let full = t.role_of[class as usize];
+    let role = full & 0x0F;
+    let b = bare(core);
+    Word {
+        lead,
+        core,
+        trail,
+        numeric: full != 0,
+        value: role != 0 && (t.suffix_roles | t.prefix_roles) >> role & 1 == 0,
+        filler: FILLERS.iter().any(|f| f.eq_ignore_ascii_case(b)),
+        digits: !b.is_empty() && b.bytes().all(|c| c.is_ascii_digit()),
+    }
+}
+
+fn tag<'a>(t: &Tables, lead: &'a str, core: &'a str, trail: &'a str) -> Word<'a> {
+    tag_class(
+        t,
+        t.lexicon.lookup(core.as_bytes()).class,
+        lead,
+        core,
+        trail,
+    )
+}
+
+fn split_word<'a>(token: &'a str, t: &Tables) -> Word<'a> {
     let rest = token.trim_start_matches(LEAD_PUNCT);
     let start = token.len() - rest.len();
     let end = start + rest.trim_end_matches(trail_punct).len();
-    if (start == 0 && end == token.len()) || start == end || !known(&token.as_bytes()[start..end]) {
-        return Word {
-            lead: "",
-            core: token,
-            trail: "",
-        };
+    if (start == 0 && end == token.len()) || start == end {
+        return tag(t, "", token, "");
     }
-    Word {
-        lead: &token[..start],
-        core: &token[start..end],
-        trail: &token[end..],
+    let class = t.lexicon.lookup(&token.as_bytes()[start..end]).class;
+    if class == CLASS_UNKNOWN {
+        return tag(t, "", token, "");
     }
+    tag_class(t, class, &token[..start], &token[start..end], &token[end..])
 }
 
 fn meridiem(letter: &str, next: &str) -> Option<(&'static str, usize)> {
@@ -45,16 +81,14 @@ fn meridiem(letter: &str, next: &str) -> Option<(&'static str, usize)> {
     (letter.eq_ignore_ascii_case("a") && m.eq_ignore_ascii_case("m")).then_some(("am", m.len()))
 }
 
-fn join_meridiem<'a>(words: Vec<Word<'a>>, numeric: impl Fn(&str) -> bool) -> Vec<Word<'a>> {
-    let mut out: Vec<Word<'a>> = Vec::with_capacity(words.len());
+fn join_meridiem(words: &mut Vec<Word<'_>>, t: &Tables) {
+    let mut put = 0;
     let mut i = 0;
     while i < words.len() {
-        let w = &words[i];
-        let after_number = out
-            .last()
-            .is_some_and(|p| p.trail.is_empty() && numeric(p.core));
+        let w = words[i];
+        let after_number = put > 0 && words[put - 1].trail.is_empty() && words[put - 1].numeric;
         let joined = (after_number && w.lead.is_empty() && w.trail.is_empty())
-            .then(|| words.get(i + 1))
+            .then(|| words.get(i + 1).copied())
             .flatten()
             .filter(|n| n.lead.is_empty())
             .and_then(|n| meridiem(w.core, n.core).map(|(j, len)| (j, n, len)));
@@ -65,24 +99,17 @@ fn join_meridiem<'a>(words: Vec<Word<'a>>, numeric: impl Fn(&str) -> bool) -> Ve
                 } else {
                     next.trail
                 };
-                out.push(Word {
-                    lead: "",
-                    core,
-                    trail,
-                });
+                words[put] = tag(t, "", core, trail);
                 i += 2;
             }
             None => {
-                out.push(Word {
-                    lead: w.lead,
-                    core: w.core,
-                    trail: w.trail,
-                });
+                words[put] = w;
                 i += 1;
             }
         }
+        put += 1;
     }
-    out
+    words.truncate(put);
 }
 
 const ZONES: [&str; 11] = [
@@ -105,22 +132,22 @@ fn zone(letters: [&str; 3]) -> Option<(&'static str, usize)> {
         .map(|z| (*z, last.len()))
 }
 
-fn join_zone<'a>(words: Vec<Word<'a>>, numeric: impl Fn(&str) -> bool) -> Vec<Word<'a>> {
-    let mut out: Vec<Word<'a>> = Vec::with_capacity(words.len());
+fn join_zone(words: &mut Vec<Word<'_>>, t: &Tables) {
+    let mut put = 0;
     let mut i = 0;
     while i < words.len() {
-        let after_time = out.last().is_some_and(|p| {
-            p.trail.is_empty()
-                && (p.core == "am" || p.core == "pm" || p.core == "m" || numeric(p.core))
-        });
+        let after_time = put > 0 && {
+            let p = words[put - 1];
+            p.trail.is_empty() && (p.core == "am" || p.core == "pm" || p.core == "m" || p.numeric)
+        };
         let joined = (after_time && i + 3 <= words.len())
-            .then(|| &words[i..i + 3])
+            .then(|| [words[i], words[i + 1], words[i + 2]])
             .filter(|w| {
                 w.iter().all(|x| x.lead.is_empty())
                     && w[0].trail.is_empty()
                     && w[1].trail.is_empty()
             })
-            .and_then(|w| zone([w[0].core, w[1].core, w[2].core]).map(|(z, len)| (z, &w[2], len)));
+            .and_then(|w| zone([w[0].core, w[1].core, w[2].core]).map(|(z, len)| (z, w[2], len)));
         match joined {
             Some((core, last, len)) => {
                 let trail = if last.trail.is_empty() {
@@ -128,44 +155,34 @@ fn join_zone<'a>(words: Vec<Word<'a>>, numeric: impl Fn(&str) -> bool) -> Vec<Wo
                 } else {
                     last.trail
                 };
-                out.push(Word {
-                    lead: "",
-                    core,
-                    trail,
-                });
+                words[put] = tag(t, "", core, trail);
                 i += 3;
             }
             None => {
-                let w = &words[i];
-                out.push(Word {
-                    lead: w.lead,
-                    core: w.core,
-                    trail: w.trail,
-                });
+                words[put] = words[i];
                 i += 1;
             }
         }
+        put += 1;
     }
-    out
+    words.truncate(put);
 }
 
-fn drop_twelve(words: Vec<Word<'_>>) -> Vec<Word<'_>> {
+fn drop_twelve(words: &mut Vec<Word<'_>>) {
     let noon = |w: &Word| {
         let b = bare(w.core);
         w.lead.is_empty() && (b.eq_ignore_ascii_case("noon") || b.eq_ignore_ascii_case("midnight"))
     };
-    let mut out = Vec::with_capacity(words.len());
-    for (i, w) in words.iter().enumerate() {
+    let mut put = 0;
+    for i in 0..words.len() {
+        let w = words[i];
         let twelve = w.core.eq_ignore_ascii_case("twelve") && w.trail.is_empty();
         if !(twelve && words.get(i + 1).is_some_and(noon)) {
-            out.push(Word {
-                lead: w.lead,
-                core: w.core,
-                trail: w.trail,
-            });
+            words[put] = w;
+            put += 1;
         }
     }
-    out
+    words.truncate(put);
 }
 
 fn push_trail(out: &mut String, trail: &str) {
@@ -190,23 +207,11 @@ fn bare(core: &str) -> &str {
     core.trim_end_matches(trail_punct)
 }
 
-fn guarded(
-    words: &[Word],
-    value: impl Fn(&str) -> bool,
-    counting: impl Fn(&str) -> bool,
-    affix: impl Fn(&str) -> bool,
-) -> Vec<bool> {
+fn guarded(words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<bool> {
     let n = words.len();
-    let num = |i: usize| value(words[i].core);
-    let filler = |i: usize| {
-        FILLERS
-            .iter()
-            .any(|f| f.eq_ignore_ascii_case(bare(words[i].core)))
-    };
-    let digits = |i: usize| {
-        let b = bare(words[i].core);
-        !b.is_empty() && b.bytes().all(|c| c.is_ascii_digit())
-    };
+    let num = |i: usize| words[i].value;
+    let filler = |i: usize| words[i].filler;
+    let digits = |i: usize| words[i].digits;
     let plural = |i: usize| {
         let b = bare(words[i].core);
         let stem = b.strip_suffix("'s").or_else(|| b.strip_suffix('s'));
@@ -244,7 +249,7 @@ fn guarded(
             mark(i, run_right(i + 1, &num));
         }
         if let Some(end) = mixed_fraction(words, i) {
-            let j = if i > 0 && !num(i - 1) && affix(words[i - 1].core) {
+            let j = if i > 0 && !num(i - 1) && words[i - 1].numeric {
                 i - 1
             } else {
                 i
@@ -273,25 +278,20 @@ fn mixed_fraction(words: &[Word], i: usize) -> Option<usize> {
 
 pub fn format_line(engine: &Engine, line: &str, out: &mut String) {
     let t = engine.tables();
-    let known = |core: &[u8]| t.lexicon.lookup(core).class != CLASS_UNKNOWN;
-    let numeric = |core: &str| t.role_of[t.lexicon.lookup(core.as_bytes()).class as usize] != 0;
-    let value = |core: &str| {
-        let role = t.role_of[t.lexicon.lookup(core.as_bytes()).class as usize] & 0x0F;
-        role != 0 && (t.suffix_roles | t.prefix_roles) >> role & 1 == 0
-    };
-    let words: Vec<Word> = line
-        .split_whitespace()
-        .map(|tok| split_word(tok, known))
-        .collect();
-    let words = join_meridiem(words, numeric);
-    let words = join_zone(words, numeric);
-    let words = drop_twelve(words);
+    let mut words: Vec<Word> = Vec::with_capacity(line.split_whitespace().count());
+    words.extend(line.split_whitespace().map(|tok| split_word(tok, t)));
+    join_meridiem(&mut words, t);
+    join_zone(&mut words, t);
+    drop_twelve(&mut words);
     let counting = |core: &str| {
         let role = t.role_of[t.lexicon.lookup(core.as_bytes()).class as usize] & 0x0F;
         COUNTING_ROLES >> role & 1 == 1
     };
-    let affix = |core: &str| numeric(core) && !value(core);
-    let keep = guarded(&words, value, counting, affix);
+    let keep = guarded(&words, counting);
+    let mut scratch = Scratch {
+        windows: Vec::new(),
+        buf: [0u8; LINE_OUT],
+    };
     let mut start = 0;
     for i in 0..words.len() {
         let last = i + 1 == words.len()
@@ -304,10 +304,9 @@ pub fn format_line(engine: &Engine, line: &str, out: &mut String) {
             }
             out.push_str(words[start].lead);
             if keep[i] {
-                let raw: Vec<&str> = words[start..=i].iter().map(|w| w.core).collect();
-                out.push_str(&raw.join(" "));
+                push_raw(out, &words[start..=i]);
             } else {
-                format_segment(engine, &words[start..=i], out);
+                format_segment(engine, &words[start..=i], out, &mut scratch);
             }
             push_trail(out, words[i].trail);
             start = i + 1;
@@ -325,24 +324,46 @@ fn scale_exp(word: &str) -> u32 {
     }
 }
 
-fn render(engine: &Engine, bytes: &[&[u8]], w: &Window) -> Option<String> {
-    if w.raw {
-        return None;
-    }
-    let mut buf = [0u8; LINE_OUT];
-    let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
-    let done = engine
-        .format(&bytes[w.start..w.end], &mut buf, &mut receipts)
-        .ok()?;
-    core::str::from_utf8(&buf[..done.len])
-        .ok()
-        .map(str::to_owned)
+struct Scratch {
+    windows: Vec<Window>,
+    buf: [u8; LINE_OUT],
 }
 
-fn render_run(engine: &Engine, bytes: &[&[u8]], words: &[Word], run: &[Window]) -> Option<String> {
+fn push_raw(out: &mut String, words: &[Word]) {
+    for (k, w) in words.iter().enumerate() {
+        if k > 0 {
+            out.push(' ');
+        }
+        out.push_str(w.core);
+    }
+}
+
+fn render<'b>(
+    engine: &Engine,
+    words: &[Word],
+    w: &Window,
+    buf: &'b mut [u8; LINE_OUT],
+) -> Option<&'b str> {
+    let span = words
+        .get(w.start..w.end)
+        .filter(|s| !w.raw && s.len() <= MAX_TOKENS)?;
+    let mut tokens: [&[u8]; MAX_TOKENS] = [&[]; MAX_TOKENS];
+    for (token, word) in tokens.iter_mut().zip(span) {
+        *token = word.core.as_bytes();
+    }
+    let done = engine.format(&tokens[..span.len()], buf).ok()?;
+    core::str::from_utf8(&buf[..done.len]).ok()
+}
+
+fn render_run(
+    engine: &Engine,
+    words: &[Word],
+    run: &[Window],
+    buf: &mut [u8; LINE_OUT],
+) -> Option<String> {
     let mut pieces = Vec::with_capacity(run.len());
     for (i, w) in run.iter().enumerate() {
-        let digits = piece_digits(&render(engine, bytes, w)?)?;
+        let digits = piece_digits(render(engine, words, w, buf)?)?;
         let k = if i + 1 == run.len() {
             0
         } else {
@@ -361,11 +382,11 @@ fn words_first(t: &Tables, core: &str) -> bool {
 fn digit_word(engine: &Engine, core: &str) -> bool {
     let t = engine.tables();
     let info = t.lexicon.lookup(core.as_bytes());
-    engine.single_digits()
+    engine.style() == Style::SingleDigits
         && engine.is_digit_word(info.canonical, t.role_of[info.class as usize] & 0x0F)
 }
 
-fn format_segment(engine: &Engine, words: &[Word], out: &mut String) {
+fn format_segment(engine: &Engine, words: &[Word], out: &mut String, scratch: &mut Scratch) {
     let t = engine.tables();
     if let [only] = words
         && words_first(t, only.core)
@@ -374,9 +395,13 @@ fn format_segment(engine: &Engine, words: &[Word], out: &mut String) {
         out.push_str(only.core);
         return;
     }
-    let bytes: Vec<&[u8]> = words.iter().map(|w| w.core.as_bytes()).collect();
-    let numeric = |i: usize| t.role_of[t.lexicon.lookup(bytes[i]).class as usize] != 0;
-    let ws = windows_scaled(bytes.len(), numeric, |i| scale_exp(words[i].core) != 0);
+    let Scratch { windows: ws, buf } = scratch;
+    windows_scaled_into(
+        ws,
+        words.len(),
+        |i| words[i].numeric,
+        |i| scale_exp(words[i].core) != 0,
+    );
     let mut i = 0;
     while i < ws.len() {
         let mut j = i + 1;
@@ -386,19 +411,15 @@ fn format_segment(engine: &Engine, words: &[Word], out: &mut String) {
         if i > 0 {
             out.push(' ');
         }
-        let formatted = if j - i > 1 {
-            render_run(engine, &bytes, words, &ws[i..j])
+        if j - i > 1 {
+            match render_run(engine, words, &ws[i..j], buf) {
+                Some(text) => out.push_str(&text),
+                None => push_raw(out, &words[ws[i].start..ws[j - 1].end]),
+            }
         } else {
-            render(engine, &bytes, &ws[i])
-        };
-        match formatted {
-            Some(text) => out.push_str(&text),
-            None => {
-                let raw: Vec<&str> = words[ws[i].start..ws[j - 1].end]
-                    .iter()
-                    .map(|w| w.core)
-                    .collect();
-                out.push_str(&raw.join(" "));
+            match render(engine, words, &ws[i], buf) {
+                Some(text) => out.push_str(text),
+                None => push_raw(out, &words[ws[i].start..ws[i].end]),
             }
         }
         i = j;
@@ -480,13 +501,24 @@ pub fn windows_scaled(
     numeric: impl Fn(usize) -> bool,
     group_scale: impl Fn(usize) -> bool,
 ) -> Vec<Window> {
+    let mut out = Vec::new();
+    windows_scaled_into(&mut out, n, numeric, group_scale);
+    out
+}
+
+fn windows_scaled_into(
+    out: &mut Vec<Window>,
+    n: usize,
+    numeric: impl Fn(usize) -> bool,
+    group_scale: impl Fn(usize) -> bool,
+) {
+    out.clear();
     let run_end = |mut i: usize| {
         while i < n && numeric(i) {
             i += 1;
         }
         i
     };
-    let mut out = Vec::new();
     let mut start = 0;
     while start < n {
         if numeric(start) {
@@ -536,7 +568,6 @@ pub fn windows_scaled(
         });
         start = end;
     }
-    out
 }
 
 #[cfg(test)]

@@ -6,9 +6,9 @@ mod spell;
 use std::path::Path;
 use std::process::ExitCode;
 
-use clm_itn::engine::Engine;
 use clm_itn::engine::window::format_line;
 use clm_itn::types::ROLE_NONE;
+use clm_itn::{Engine, Style};
 
 use eval::{Tally, WordRole, accuracy, category_of, is_partial, parse_cases};
 
@@ -91,7 +91,12 @@ fn run_lines(opts: &pairs::LinesOpts) -> ExitCode {
         }
     };
     let (cases, malformed) = lines::parse_lines(&text);
-    let engine = Engine::new(clm_itn::english()).with_single_digits(opts.single_digits);
+    let style = if opts.single_digits {
+        Style::SingleDigits
+    } else {
+        Style::Ap
+    };
+    let engine = Engine::english().with_style(style);
     let mut tally = lines::LineTally {
         all_failures: opts.all_failures,
         ..lines::LineTally::default()

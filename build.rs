@@ -11,15 +11,11 @@ mod hash;
 #[path = "src/types.rs"]
 mod types;
 
-#[path = "src/learn"]
-mod learn {
-    pub mod cell;
-}
-
 #[path = "src/tables"]
 mod tables {
     mod bundle;
     pub mod candidate;
+    pub mod cell;
     pub mod context;
     pub mod lexicon;
     pub mod shape;
@@ -40,9 +36,9 @@ const SOURCES: [&str; 16] = [
     "src/engine/span.rs",
     "src/hash.rs",
     "src/types.rs",
-    "src/learn/cell.rs",
     "src/tables/bundle.rs",
     "src/tables/candidate.rs",
+    "src/tables/cell.rs",
     "src/tables/context.rs",
     "src/tables/lexicon.rs",
     "src/tables/shape.rs",
@@ -51,6 +47,11 @@ const SOURCES: [&str; 16] = [
 fn main() {
     for src in SOURCES {
         println!("cargo:rerun-if-changed={src}");
+    }
+    // Shared table sources gate their std-only items on `not(clm_no_std)`, so
+    // this script's own copy of them keeps those items.
+    if std::env::var_os("CARGO_FEATURE_STD").is_none() {
+        println!("cargo:rustc-cfg=clm_no_std");
     }
     let tables = builder::build_english()
         .unwrap_or_else(|e| panic!("English tables fail validation: {e:?}"));

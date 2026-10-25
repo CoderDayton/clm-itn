@@ -2,17 +2,17 @@
 
 ### Contextual Lexical Matrix for Inverse Text Normalization
 
-CLM-ITN is a high-performance, zero-dependency, allocation-free Inverse Text Normalization framework designed for systems-level text formatting within a strict **1.00 µs p99 latency ceiling**. 
+CLM-ITN is a high-performance, allocation-free Inverse Text Normalization framework designed for systems-level text formatting within a strict **1.00 µs p99 latency ceiling**.
 
-The architecture avoids non-deterministic generative models and complex pointer-chasing graphs. Instead, it relies on a hardware-sympathetic three-tier execution pipeline paired with a lock-free, asynchronous adaptive feedback loop.
+The architecture avoids non-deterministic generative models and complex pointer-chasing graphs. Instead, it relies on a hardware-sympathetic three-tier execution pipeline over frozen, read-only tables.
 
 ### Pipeline Layers
 
 *   **Tier 1 (Lexicon Lexing):** Maps each spoken token to a canonical numeric symbol and a contextual token class with one cuckoo-table lookup. A variable-length string comparison becomes one fixed 16-byte SIMD compare against at most 8 keys.
 *   **Tier 2 (Trigram Context Interception):** For each numeric span, reads the class IDs of the token before and the token after the span. The (left class, span, right class) trigram (N = 3) selects the span's semantic domain (e.g., Time vs. Identifier) from a frozen 256×256 table. Low-confidence entries fall back to a fixed default.
-*   **Tier 3 (Adaptive Phrase N-Gram Mapping):** Each span is a phrase n-gram of 1–8 tokens, keyed by its shape (the sequence of its token roles). The (domain, shape) pair selects an isolated cell, which holds that phrase's rendering candidates in rank order plus correction streak counters. User corrections reorder the ranks; rank 0 is the rendering used.
+*   **Tier 3 (Phrase N-Gram Mapping):** Each span is a phrase n-gram of 1–8 tokens, keyed by its shape (the sequence of its token roles). The (domain, shape) pair selects a cell, which holds that phrase's rendering candidates in rank order. Rank 0 is the rendering used.
 
-Tier 2 and Tier 3 are n-gram tables over token classes and roles, not statistical language models: every entry is a fixed choice, so the same input and cell state always give the same output.
+Tier 2 and Tier 3 are n-gram tables over token classes and roles, not statistical language models: every entry is a fixed choice, so the same input always gives the same output.
 
 ---
 
@@ -31,9 +31,7 @@ The hot path processes streaming tokens in a linear sequence using preallocated 
 
 ### Memory Isolation Invariant
 *   Every table starts on a 64-byte boundary (`#[repr(align(64))]`), so each bucket, record, or cell group is one cache-line load.
-*   The Tier 1 lexicon, role table, shape table, Tier 2 LUT, and candidate table are read-only after init. Nothing writes them, so they cannot false-share.
-*   Tier 3 is the only table the worker writes. Cells are packed 8 per 64-byte line. A worker store invalidates that line in the reader's cache, so the next read of any of its 8 cells misses once. Stores happen once per accepted correction, so this cost is accepted rather than paying 8× memory for one cell per line.
-*   The SPSC ring's head index and tail index each sit alone on a 128-byte-aligned block. Both threads touch them on every event, and Intel's adjacent-line prefetcher fetches lines in 128-byte pairs.
+*   Every table (lexicon, role table, shape table, Tier 2 LUT, Tier 3 cells, candidate table) is a `static` in the binary and read-only. Nothing writes them, so nothing can false-share and an `Engine` is `Sync` with no locks. `Engine::new` allocates nothing.
 
 ---
 
@@ -93,27 +91,23 @@ if b2 == b1 { b2 ^= 1; }
         *   `Bits 0-3`: Active `NumberDomain` ID: `0` Cardinal, `1` Time, `2` Identifier, `3` Ordinal, `4` Date, `5` Plain (number words that stay words), `6` Money, `7` Cents, `8` Percent, `9` Negative, `10` Measure, `11` Measure with power word ("square", "cubic"), `12` Measure with prefix word ("kilo", "mega"), `13` Date with month, `14` Date with "may"; `15` reserved.
         *   `Bits 4-7`: Quantized Confidence Band (Values `0-15`).
     4. **Affix Rows:** Context rows whose class is an affix are fixed by structure, at confidence 15: right = currency → Money, right = cent → Cents, right = percent → Percent, otherwise left = minus → Negative. They take precedence over learned rows, because an affix class appears as context only through the affix split.
-    5. **Abstention Gate:** If the confidence band is below a fixed margin threshold ($\tau = 3$), the span uses `cardinal_default[shape_id]`, a frozen 2048-byte table of Candidate IDs (one per shape), instead of its Tier 3 cell. The engine computes both choices and selects with a mask, so the gate has no branch. Learning never changes this path: the span's receipt carries `cell = 0xFFFF`, and a correction against it returns `Abstained` and pushes nothing.
-    6. **Words-First Rule:** `words_first` is a frozen 4096-bit set (512 bytes) indexed by canonical ID. When a span is one token long, its token's bit is set, its domain is Cardinal or Ordinal or it abstained (or Time, when the token's role is in the frozen `words_first_roles` mask, which holds the ordinal role, so "at first sight" stays words while "at five" → `at 5`), and at least one neighbor is a word rather than a window boundary, the span routes to the Plain domain without abstaining. The Plain cell ranks `RAW` first, so the word stays as written ("this one only"), and the receipt names a real cell, so corrections still apply. The English set is "one", "first", "second" and "two" through "nine"; a lexicon unit, currency, scale, or other number word next to the token makes the span longer than one token, so those keep formatting ("five meters" → `5 m`, "five dollars" → `$5`). A noun outside the lexicon is a plain word, so "five days" stays as written. The engine applies it with a mask, so the rule has no branch.
+    5. **Abstention Gate:** If the confidence band is below a fixed margin threshold ($\tau = 3$), the span uses `cardinal_default[shape_id]`, a frozen 2048-byte table of Candidate IDs (one per shape), instead of its Tier 3 cell. The engine computes both choices and selects with a mask, so the gate has no branch. The span's receipt carries `cell = 0xFFFF`.
+    6. **Words-First Rule:** `words_first` is a frozen 4096-bit set (512 bytes) indexed by canonical ID. When a span is one token long, its token's bit is set, its domain is Cardinal or Ordinal or it abstained (or Time, when the token's role is in the frozen `words_first_roles` mask, which holds the ordinal role, so "at first sight" stays words while "at five" → `at 5`), and at least one neighbor is a word rather than a window boundary, the span routes to the Plain domain without abstaining. The Plain cell ranks `RAW` first, so the word stays as written ("this one only"), and the receipt names a real cell. The English set is "one", "first", "second" and "two" through "nine"; a lexicon unit, currency, scale, or other number word next to the token makes the span longer than one token, so those keep formatting ("five meters" → `5 m`, "five dollars" → `$5`). A noun outside the lexicon is a plain word, so "five days" stays as written. The engine applies it with a mask, so the rule has no branch.
 
-### Tier 3: Adaptive Permutation Matrix
+### Tier 3: Phrase Cell Matrix
 *   **Latency Budget:** 0.15 µs (Dominated by a single cache-line fetch).
 *   **Data Structure:** Flat direct-indexed array of 32768 cells (256 KB), indexed by `cell = (domain_id << 11) | shape_id` (4-bit domain, 11-bit shape).
 *   **Layout:**
-    *   Each entry is a single atomic 64-bit word (`AtomicU64`) representing a frozen structural candidate cell.
+    *   Each entry is a single 64-bit word representing a frozen structural candidate cell.
     *   The 64 bits are tightly bit-packed as follows:
         *   `Bits 0-7`:   `u8` Candidate ID at Rank 0 (The active hot path choice).
         *   `Bits 8-15`:  `u8` Candidate ID at Rank 1.
         *   `Bits 16-23`: `u8` Candidate ID at Rank 2.
         *   `Bits 24-31`: `u8` Candidate ID at Rank 3.
-        *   `Bits 32-35`: 4-bit saturation streak counter for Candidate at Rank 0.
-        *   `Bits 36-39`: 4-bit saturation streak counter for Candidate at Rank 1.
-        *   `Bits 40-43`: 4-bit saturation streak counter for Candidate at Rank 2.
-        *   `Bits 44-47`: 4-bit saturation streak counter for Candidate at Rank 3.
-        *   `Bits 48-63`: **Unused Slack Space (Reserved / Forced Zero)**.
-    *   Candidate ID `0` is `NONE`. It fills unused ranks when a shape has fewer than 4 valid candidates. It is never at Rank 0 and never promoted.
+        *   `Bits 32-63`: Reserved, zero.
+    *   Candidate ID `0` is `NONE`. It fills unused ranks when a shape has fewer than 4 valid candidates. It is never at Rank 0.
 *   **Lookup Method:**
-    1. Execute a single `AtomicU64::load(Relaxed)` to fetch the packed cell word.
+    1. Load the packed cell word from the static table.
     2. **Branchless Output Selection:** The active formatting choice is always Rank 0. The hot path extracts this byte directly via a bitwise mask: `let candidate_id = (packed_word & 0xFF) as u8;` This completely skips runtime sorting or comparison loops.
 
 ### Candidate Table & Output Assembly
@@ -158,40 +152,15 @@ struct Candidate {
 
 ---
 
-## 3. Asynchronous Adaptive Feedback Loop
+## 3. Span Receipts
 
-To keep the hot path wait-free, all learning mechanics are deferred to a background worker thread connected to the engine via a single-producer, single-consumer (`SPSC`) lock-free ring buffer.
-
-```text
-[Correction Call] ──(CorrectionEvent)──> SPSC Ring Buffer ──> [Worker Thread]
-                                                                    │
-[Hot Path Engine] <──(AtomicU64::store(Release) to one Tier 3 cell)─┘
-```
-
-### The Mutation Mechanism
-1. **Receipts:** For each span it formats, the engine writes a `SpanReceipt { cell: u16, start: u8, len: u8 }` into a caller-provided array. The caller keeps the receipt and the input tokens until it has made any correction for that span.
-2. **Resolving a Correction:** The correction call takes a receipt, the span's tokens, and the target text. It runs on the caller's thread, off the hot path. It renders each non-`NONE` candidate of the receipt's cell into a stack buffer and compares it with the target. A match gives the chosen Candidate ID. If nothing matches, the target is outside the frozen set: the call returns `OutOfSet`, increments an out-of-set counter, and pushes nothing. Learning only reorders existing candidates.
-3. **Event:** A match pushes a fixed 4-byte `CorrectionEvent { cell: u16, candidate: u8, _pad: u8 }`. Events carry no strings, so pushing allocates nothing.
-4. **Ring Full:** The ring has a fixed power-of-two capacity set at init. When it is full, the new event is dropped and an atomic drop counter is incremented. The producer never blocks and never overwrites unread slots.
-5. The worker pops the event and reads the `NumberDomain` from `(cell >> 11) & 0x0F`.
-6. The worker loads the event's cell word and finds the rank $r$ that holds candidate $c$. It modifies only this cell. The worker is the only writer, so a plain load-modify-store needs no compare-and-swap.
-7. Streak counters belong to rank positions, not to candidates. The Rank 0 counter is always zero.
-8. If $r = 0$, the current choice is confirmed: clear all counters.
-9. If $r > 0$, increment the Rank $r$ counter and clear the other three.
-10. **Hysteresis Promotion Gate:** When the Rank $r$ counter reaches the threshold $H$ (default $4$; valid range $1–15$, the 4-bit counter's limit), swap the candidate IDs at ranks $r$ and $r-1$ and clear all four counters.
-11. Publish the new word with a single `AtomicU64::store(Release)`, skipping the store if the word is unchanged. The reader's `Relaxed` load is enough: the word is self-contained, and no other data is published with it.
-
-### Bounding Wrong-Domain Blast Radius
-If the Tier 2 matrix mistakenly misclassifies a sentence context, a user correction will land in the wrong domain's slot. The design handles this failure state via three structural bounds:
-*   **Isolated Arenas:** Because cells are fundamentally isolated by their `NumberDomain` mapping key, a bad correction event modifies only the corrupted domain's slots. Outputs inside other domains (e.g., `Time`) remain physically untouched.
-*   **Candidate Freezing:** The slot choices can *only* point to predefined, grammar-valid alternative representations of that identical span shape. The system cannot synthesize raw string literals or invent unseen tokens, meaning a bad write degrades to an alternative valid grammatical formatting choice rather than text corruption.
-*   **Hysteresis Recovery:** Misrouted corrections cause at most one adjacent rank swap per $H$ consecutive misroutes, because every swap clears all counters. $H$ consecutive corrections for the displaced candidate swap it back.
+For each span it formats, the engine records a `SpanReceipt { cell: u16, start: u8, len: u8 }`. `Engine::format` discards them; the hidden `Engine::format_receipts` writes them into a caller-provided array. `cell` names the Tier 3 cell that chose the rendering, or is `0xFFFF` when the span abstained. `start` and `len` locate the span in the input tokens. Receipts let a caller see which spans were rewritten; they change nothing.
 
 ---
 
 ## 4. Verification & Testing Primitives
 
-Any implementation of this specification must pass three automated verification blocks before deployment.
+Any implementation of this specification must pass the latency block before deployment.
 
 ### 1. Cycle-Counter Latency Profile
 *   **Method:** Replay $10^6$ logged production utterances on one pinned core after a warm-up pass. Time each call separately.
@@ -209,19 +178,4 @@ Any implementation of this specification must pass three automated verification 
     *   x86-64 requires an invariant TSC (CPUID `0x80000007`, EDX bit 8). TSC rates are in the GHz range, so they pass.
     *   AArch64 cores from Armv8.6 on fix the counter at 1 GHz and pass. Earlier cores choose their own rate (Apple M1: 24 MHz, about 42 ns per tick) and fail. On those, the bench uses the PMU cycle counter `PMCCNTR_EL0`. Linux exposes it to user space when `kernel.perf_user_access = 1` and the event is opened with `perf_event_open` with `config1` bit 1 set. Cycles convert to ns only at a fixed clock, so lock the pinned core's frequency. On big.LITTLE parts, pin to one core type.
     *   A run that fails the gate still reports its numbers, marked coarse, and cannot sign off.
-*   **Scope:** The timer, PMU path, and counting allocator live in the bench harness only. The library stays zero-dependency.
-
-### 2. Domain-Disjoint Drift Test
-*   **Method:** Split a validation dataset into slices by the domain Tier 2 routes each span to, not by its true domain; a misrouted span belongs to the slice of the domain it was routed to. Inject a burst of synthetic correction cycles exclusively targeting a single domain's cells.
-*   **Invariant:** Execute a full string-level `diff` across the outputs of the non-target datasets. The number of changed outputs in non-target sets must equal exactly zero.
-
-### 3. Hysteresis Sweep & Thrash Audit
-*   **Method:** Stream correction sequences to a single cell while sweeping $H$ from 1 to 15:
-    *   strict alternation (A, B, A, B, …);
-    *   mixed ratios (3:1 and 1:3);
-    *   runs of exactly $H$ and exactly $H-1$ corrections for one candidate.
-*   **Invariants:**
-    1. Every swap matches a scalar reference model of the update rule, event by event.
-    2. $N$ corrections cause at most $\lfloor N / H \rfloor$ swaps.
-    3. Strict alternation causes zero swaps for $H \ge 2$ and one swap per correction for $H = 1$, except a correction that names the Rank 0 candidate.
-    4. $H$ consecutive corrections for a candidate at rank $r > 0$ cause exactly one swap; $H-1$ cause none.
+*   **Scope:** The timer, PMU path, and counting allocator live in the bench harness only.

@@ -1,8 +1,7 @@
 use std::io::{self, BufRead, Write};
 use std::process::ExitCode;
 
-use clm_itn::engine::Engine;
-use clm_itn::engine::window::format_line;
+use clm_itn::{Engine, Style};
 
 const USAGE: &str = "Usage: clm-itn [--single-digits] [--help | --version]
 
@@ -12,8 +11,8 @@ written form to stdout. Invalid UTF-8 bytes become U+FFFD.
 --single-digits  write lone single numbers as digits (\"8 years\") instead of AP
                  words (\"eight years\")";
 
-fn run(digits: bool) -> io::Result<()> {
-    let engine = Engine::new(clm_itn::english()).with_single_digits(digits);
+fn run(style: Style) -> io::Result<()> {
+    let engine = Engine::english().with_style(style);
     let mut input = io::stdin().lock();
     let mut stdout = io::stdout().lock();
     let mut raw = Vec::new();
@@ -26,13 +25,13 @@ fn run(digits: bool) -> io::Result<()> {
         let line = raw.strip_suffix(b"\n").unwrap_or(&raw);
         let line = line.strip_suffix(b"\r").unwrap_or(line);
         text.clear();
-        format_line(&engine, &String::from_utf8_lossy(line), &mut text);
+        engine.normalize_into(&String::from_utf8_lossy(line), &mut text);
         writeln!(stdout, "{text}")?;
     }
 }
 
-fn start(digits: bool) -> ExitCode {
-    match run(digits) {
+fn start(style: Style) -> ExitCode {
+    match run(style) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("clm-itn: {e}");
@@ -44,8 +43,8 @@ fn start(digits: bool) -> ExitCode {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.as_slice() {
-        [] => start(false),
-        [a] if a == "--single-digits" => start(true),
+        [] => start(Style::Ap),
+        [a] if a == "--single-digits" => start(Style::SingleDigits),
         [a] if a == "--help" || a == "-h" => {
             println!("{USAGE}");
             ExitCode::SUCCESS

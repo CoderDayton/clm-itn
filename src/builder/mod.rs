@@ -6,8 +6,8 @@ pub mod learned;
 use std::collections::HashMap;
 
 use crate::engine::span::MAX_SUFFIX;
-use crate::learn::cell::{pack, unpack};
 use crate::tables::candidate::{Candidate, CandidateError, CandidateTable, op};
+use crate::tables::cell::{pack, unpack};
 use crate::tables::context::pack_entry;
 use crate::tables::lexicon::{self, Lexicon};
 use crate::tables::shape::{ShapeBuildError, ShapeTable, shape_key};
@@ -1597,7 +1597,7 @@ mod tests {
         let mut out = [0u8; 32];
         let mut receipts = [crate::types::SpanReceipt::default(); MAX_TOKENS];
         let f = engine
-            .format(&tokens, &mut out, &mut receipts)
+            .format_receipts(&tokens, &mut out, &mut receipts)
             .expect("format");
         assert_eq!(f.spans, 1);
         assert_eq!(cell_domain(receipts[0].cell), DOMAIN_PLAIN);
@@ -1733,7 +1733,7 @@ mod tests {
         let mut out = [0u8; 64];
         let mut receipts = [crate::types::SpanReceipt::default(); MAX_TOKENS];
         engine
-            .format(&tokens, &mut out, &mut receipts)
+            .format_receipts(&tokens, &mut out, &mut receipts)
             .expect("format");
         let cell = receipts[0].cell;
         assert_eq!(cell_domain(cell), english::DOMAIN_MONTH_DATE);

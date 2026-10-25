@@ -2,8 +2,46 @@
 name = "clm-itn"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.92"
 authors = ["vii (CoderDayton)"]
 license = "Apache-2.0"
+description = "Inverse text normalization for English: spoken numbers, times, dates and units to written form, with a 1 µs p99 fast path."
+repository = "https://github.com/CoderDayton/clm-itn"
+readme = "README.md"
+keywords = ["itn", "text-normalization", "speech", "asr", "nlp"]
+categories = ["text-processing", "parsing"]
 default-run = "clm-itn"
+exclude = [".github/", "CLAUDE.md", "Scripts.toml", "lefthook.yml", "tools/", "docs/TEAM.md"]
+
+[features]
+default = ["std"]
+# The CLI, the bench and eval tools, and the table builder.
+std = ["alloc"]
+# Engine::normalize, Engine::normalize_into and format_line.
+alloc = []
 
 [dependencies]
+
+[lints.rust]
+# Set by build.rs when the `std` feature is off.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(clm_no_std)"] }
+
+[[bin]]
+name = "clm-itn"
+path = "src/main.rs"
+required-features = ["std"]
+
+[[bin]]
+name = "clm-bench"
+path = "src/bin/clm-bench/main.rs"
+required-features = ["std"]
+
+[[bin]]
+name = "clm-eval"
+path = "src/bin/clm-eval/main.rs"
+required-features = ["std"]
+
+[[bin]]
+name = "clm-learn"
+path = "src/bin/clm-learn/main.rs"
+required-features = ["std"]

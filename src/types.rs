@@ -1,3 +1,4 @@
+/// The most tokens one [`Engine::format`](crate::Engine::format) call takes.
 pub const MAX_TOKENS: usize = 8;
 pub const MAX_KEY_LEN: usize = 15;
 
@@ -9,6 +10,21 @@ pub type CanonicalId = u16;
 
 pub type Role = u8;
 pub const ROLE_NONE: Role = 0;
+pub const ROLE_DIGIT: Role = 1;
+pub const ROLE_TEEN: Role = 2;
+pub const ROLE_TENS: Role = 3;
+pub const ROLE_HUNDRED: Role = 4;
+pub const ROLE_SCALE: Role = 5;
+pub const ROLE_POINT: Role = 6;
+pub const ROLE_AND: Role = 7;
+pub const ROLE_OH: Role = 8;
+pub const ROLE_ORDINAL: Role = 9;
+pub const ROLE_MSCALE: Role = 10;
+pub const ROLE_CURRENCY: Role = 11;
+pub const ROLE_AMPM: Role = 12;
+pub const ROLE_UNIT: Role = 13;
+pub const ROLE_MINUS: Role = 14;
+pub const ROLE_MER: Role = 15;
 
 pub type ShapeId = u16;
 pub const SHAPE_UNKNOWN: ShapeId = 0;
@@ -38,7 +54,6 @@ pub const CELL_COUNT: usize = 32768;
 pub const CELL_ABSTAINED: CellIndex = 0xFFFF;
 
 pub const TAU: u8 = 3;
-pub const DEFAULT_H: u8 = 4;
 
 #[inline(always)]
 pub const fn cell_index(domain: DomainId, shape: ShapeId) -> CellIndex {
@@ -68,27 +83,28 @@ pub struct SpanReceipt {
     pub len: u8,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct CorrectionEvent {
-    pub cell: CellIndex,
-    pub candidate: CandidateId,
-    pub _pad: u8,
-}
-
+/// Why [`Engine::format`](crate::Engine::format) failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FormatError {
+    /// The output buffer is too small.
     Overflow,
+    /// The call got more than [`MAX_TOKENS`] tokens.
     TooManyTokens,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CorrectionError {
-    OutOfSet,
-    Abstained,
-    Dropped,
-    InvalidReceipt,
+impl core::fmt::Display for FormatError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            FormatError::Overflow => f.write_str("output buffer is too small"),
+            FormatError::TooManyTokens => {
+                write!(f, "more than {MAX_TOKENS} tokens in one call")
+            }
+        }
+    }
 }
+
+impl core::error::Error for FormatError {}
 
 #[cfg(test)]
 mod tests {
@@ -126,10 +142,5 @@ mod tests {
     #[test]
     fn abstained_cell_is_outside_cell_range() {
         assert!(CELL_ABSTAINED as usize >= CELL_COUNT);
-    }
-
-    #[test]
-    fn correction_event_is_four_bytes() {
-        assert_eq!(core::mem::size_of::<CorrectionEvent>(), 4);
     }
 }

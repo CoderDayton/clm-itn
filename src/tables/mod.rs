@@ -1,5 +1,6 @@
 mod bundle;
 pub mod candidate;
+pub mod cell;
 pub mod context;
 pub mod english;
 pub mod lexicon;

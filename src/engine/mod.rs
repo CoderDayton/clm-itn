@@ -1,81 +1,188 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+//! The formatting engine.
 
 pub mod span;
+#[cfg(feature = "alloc")]
 pub mod window;
 
-use crate::builder::english::ROLE_DIGIT;
-use crate::learn::cell::{Cells, rank0, unpack};
-use crate::learn::ring::Producer;
+#[cfg(feature = "alloc")]
+use alloc::string::String;
+
+use crate::tables::cell::rank0;
 use crate::tables::context::{abstains, select};
 use crate::tables::{Tables, WORDS_FIRST_WORDS};
+use core::fmt;
+
 use crate::types::{
-    CANDIDATE_NONE, CELL_ABSTAINED, CELL_COUNT, CLASS_BOUNDARY, CandidateId, CellIndex,
-    CorrectionError, CorrectionEvent, DOMAIN_CARDINAL, DOMAIN_IDENTIFIER, DOMAIN_ORDINAL,
-    DOMAIN_PLAIN, DOMAIN_TIME, DomainId, FormatError, MAX_TOKENS, SHAPE_UNKNOWN, ShapeId,
-    SpanReceipt, TokenInfo, cell_domain, cell_index,
+    CANDIDATE_NONE, CELL_ABSTAINED, CLASS_BOUNDARY, CandidateId, DOMAIN_CARDINAL,
+    DOMAIN_IDENTIFIER, DOMAIN_ORDINAL, DOMAIN_PLAIN, DOMAIN_TIME, DomainId, FormatError,
+    MAX_TOKENS, ROLE_DIGIT, SHAPE_UNKNOWN, ShapeId, SpanReceipt, TokenInfo, cell_index,
 };
 use span::{Affixes, Span, segment};
 
-const RESOLVE_BUF: usize = 256;
-
 type Chosen = (DomainId, CandidateId, u16, u8);
 
+/// What [`Engine::format`] wrote.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Formatted {
+    /// Bytes written to the output buffer.
     pub len: usize,
+    /// Number of spans that were rewritten.
     pub spans: usize,
 }
 
+/// How lone single numbers are written.
+///
+/// Ordinals ("third") and numbers of two or more words are the same in every
+/// style. New styles may be added, so a `match` on `Style` needs a `_` arm.
+///
+/// ```
+/// use clm_itn::{Engine, Style};
+///
+/// let digits = Engine::english().with_style(Style::SingleDigits);
+/// assert_eq!(digits.normalize("like eight years"), "like 8 years");
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Style {
+    /// AP style: a lone single number stays a word ("eight years").
+    #[default]
+    Ap,
+    /// A lone single number becomes a digit ("8 years"), as Whisper writes it.
+    SingleDigits,
+}
+
+/// Turns spoken-form text into written form.
+///
+/// An `Engine` is a small value that borrows read-only tables. It is `Copy`,
+/// `Send` and `Sync`, so build it once and share it.
+///
+/// ```
+/// let engine = clm_itn::Engine::english();
+/// assert_eq!(engine.normalize("at five thirty pm"), "at 5:30 pm");
+/// ```
+#[derive(Clone, Copy)]
 pub struct Engine<'t> {
     tables: &'t Tables,
-    cells: Arc<Cells>,
-    out_of_set: AtomicU64,
-    single_digits: bool,
+    style: Style,
+}
+
+impl fmt::Debug for Engine<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Engine")
+            .field("style", &self.style)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for Engine<'static> {
+    fn default() -> Self {
+        Engine::english()
+    }
+}
+
+impl Engine<'static> {
+    /// An engine over the built-in English tables, which are compiled into
+    /// the binary. Building it allocates nothing.
+    #[must_use]
+    pub fn english() -> Engine<'static> {
+        Engine::new(crate::english())
+    }
 }
 
 impl<'t> Engine<'t> {
+    /// An engine over the given tables, in the default [`Style::Ap`].
+    #[must_use]
     pub fn new(tables: &'t Tables) -> Engine<'t> {
-        let cells = Cells::shared();
-        for (cell, &word) in tables.initial_cells.iter().enumerate() {
-            if word != 0 {
-                cells.store(cell as CellIndex, word);
-            }
-        }
         Engine {
             tables,
-            cells,
-            out_of_set: AtomicU64::new(0),
-            single_digits: false,
+            style: Style::Ap,
         }
     }
 
-    pub fn with_single_digits(mut self, on: bool) -> Self {
-        self.single_digits = on;
+    /// Chooses the number [`Style`].
+    #[must_use]
+    pub fn with_style(mut self, style: Style) -> Self {
+        self.style = style;
         self
     }
 
-    pub fn single_digits(&self) -> bool {
-        self.single_digits
+    /// The number [`Style`] in use.
+    #[must_use]
+    pub fn style(&self) -> Style {
+        self.style
     }
 
-    pub fn is_digit_word(&self, canonical: u16, role: u8) -> bool {
+    pub(crate) fn is_digit_word(&self, canonical: u16, role: u8) -> bool {
         role == ROLE_DIGIT && self.value(canonical) < 10
     }
 
-    pub fn cells(&self) -> &Arc<Cells> {
-        &self.cells
-    }
-
+    #[doc(hidden)]
     pub fn tables(&self) -> &'t Tables {
         self.tables
     }
 
-    pub fn out_of_set(&self) -> u64 {
-        self.out_of_set.load(Ordering::Relaxed)
+    /// Rewrites a line of spoken-form text and returns it as a new `String`.
+    ///
+    /// The line can be any length. Numbers are never cut, and punctuation
+    /// stays where it was. This allocates; to reuse a buffer, use
+    /// [`normalize_into`](Self::normalize_into).
+    ///
+    /// ```
+    /// let engine = clm_itn::Engine::english();
+    /// assert_eq!(engine.normalize("room four oh two."), "room 402.");
+    /// ```
+    #[cfg(feature = "alloc")]
+    #[must_use]
+    pub fn normalize(&self, text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        self.normalize_into(text, &mut out);
+        out
     }
 
-    pub fn format(
+    /// Like [`normalize`](Self::normalize), but appends to `out`. Clear `out`
+    /// first to reuse one buffer for many lines.
+    ///
+    /// ```
+    /// let engine = clm_itn::Engine::english();
+    /// let mut out = String::new();
+    /// for line in ["fifty percent off", "it costs five euros"] {
+    ///     out.clear();
+    ///     engine.normalize_into(line, &mut out);
+    ///     println!("{out}");
+    /// }
+    /// ```
+    #[cfg(feature = "alloc")]
+    pub fn normalize_into(&self, text: &str, out: &mut String) {
+        window::format_line(self, text, out);
+    }
+
+    /// Rewrites up to [`MAX_TOKENS`] pre-split tokens into `out` without
+    /// allocating. This is the call the 1.00 µs p99 budget covers.
+    ///
+    /// Tokens are spoken-form words with no punctuation. Rewritten spans and
+    /// untouched words are joined by single spaces.
+    ///
+    /// # Errors
+    ///
+    /// [`FormatError::TooManyTokens`] if there are more than [`MAX_TOKENS`]
+    /// tokens, and [`FormatError::Overflow`] if `out` is too small.
+    ///
+    /// ```
+    /// let engine = clm_itn::Engine::english();
+    /// let tokens: [&[u8]; 4] = [b"at", b"five", b"thirty", b"pm"];
+    /// let mut out = [0u8; 64];
+    /// let done = engine.format(&tokens, &mut out)?;
+    /// assert_eq!(&out[..done.len], b"at 5:30 pm");
+    /// # Ok::<(), clm_itn::FormatError>(())
+    /// ```
+    pub fn format(&self, tokens: &[&[u8]], out: &mut [u8]) -> Result<Formatted, FormatError> {
+        let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
+        self.format_receipts(tokens, out, &mut receipts)
+    }
+
+    #[doc(hidden)]
+    pub fn format_receipts(
         &self,
         tokens: &[&[u8]],
         out: &mut [u8],
@@ -129,70 +236,6 @@ impl<'t> Engine<'t> {
             len: pos,
             spans: rendered,
         })
-    }
-
-    pub fn resolve(
-        &self,
-        receipt: SpanReceipt,
-        tokens: &[&[u8]],
-        target: &[u8],
-    ) -> Result<CorrectionEvent, CorrectionError> {
-        if receipt.cell == CELL_ABSTAINED {
-            return Err(CorrectionError::Abstained);
-        }
-        let (start, len) = (receipt.start as usize, receipt.len as usize);
-        if receipt.cell as usize >= CELL_COUNT || len == 0 || start + len > tokens.len() {
-            return Err(CorrectionError::InvalidReceipt);
-        }
-        let t = self.tables;
-        let span = &tokens[start..start + len];
-        let mut infos = [TokenInfo::default(); MAX_TOKENS];
-        for (info, token) in infos.iter_mut().zip(span) {
-            *info = t.lexicon.lookup(token);
-        }
-        let first = t.role_of[infos[0].class as usize];
-        let prefixed = (t.prefix_roles >> (first & 0x0F)) & 1 == 1;
-        let (ranks, _) = unpack(self.cells.load(receipt.cell));
-        let d = cell_domain(receipt.cell);
-        for cand in ranks {
-            let have = t.candidates.span_len(d, cand) as usize;
-            let lead = match have {
-                _ if cand == CANDIDATE_NONE => continue,
-                h if h == len => 0,
-                h if prefixed && h + 1 == len => 1,
-                _ => continue,
-            };
-            let mut buf = [0u8; RESOLVE_BUF];
-            let mut pos = 0usize;
-            let pick = (d, cand, receipt.cell, lead);
-            let ok = self
-                .render_span(pick, &infos[..len], span, &mut buf, &mut pos)
-                .is_ok();
-            if ok && &buf[..pos] == target {
-                return Ok(CorrectionEvent {
-                    cell: receipt.cell,
-                    candidate: cand,
-                    _pad: 0,
-                });
-            }
-        }
-        self.out_of_set.fetch_add(1, Ordering::Relaxed);
-        Err(CorrectionError::OutOfSet)
-    }
-
-    pub fn correct(
-        &self,
-        producer: &mut Producer,
-        receipt: SpanReceipt,
-        tokens: &[&[u8]],
-        target: &[u8],
-    ) -> Result<CandidateId, CorrectionError> {
-        let event = self.resolve(receipt, tokens, target)?;
-        if producer.push(event) {
-            Ok(event.candidate)
-        } else {
-            Err(CorrectionError::Dropped)
-        }
     }
 
     #[doc(hidden)]
@@ -370,8 +413,9 @@ impl<'t> Engine<'t> {
         let inside = (span.left != CLASS_BOUNDARY) | (span.right != CLASS_BOUNDARY);
         let r = span.right as usize;
         let before_month = (t.starts.0[(r >> 6) & 3] >> (r & 63)) & 1 == 1;
-        let digit_word =
-            self.single_digits & (span.len == 1) & self.is_digit_word(info.canonical, role);
+        let digit_word = (self.style == Style::SingleDigits)
+            & (span.len == 1)
+            & self.is_digit_word(info.canonical, role);
         let words =
             marked & (span.len == 1) & base & inside & !span.dropped & !before_month & !digit_word;
         Some((
@@ -395,7 +439,7 @@ impl<'t> Engine<'t> {
         let t = self.tables;
         let cell = cell_index(domain, shape);
         let default = t.cardinal_default[shape as usize];
-        let ranked = rank0(self.cells.load(cell));
+        let ranked = rank0(t.initial_cells[cell as usize]);
         let fallback = abstain | (ranked == CANDIDATE_NONE);
         let cand = select(fallback, ranked, default);
         let d = select(fallback, domain, DOMAIN_CARDINAL);
@@ -434,9 +478,8 @@ fn put(out: &mut [u8], pos: &mut usize, bytes: &[u8]) -> Result<(), FormatError>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::learn::cell::pack;
-    use crate::learn::ring::channel;
     use crate::tables::candidate::{Candidate, op};
+    use crate::tables::cell::pack;
     use crate::tables::context::{ContextLut, pack_entry};
     use crate::tables::lexicon::Lexicon;
     use crate::tables::shape::ShapeTable;
@@ -532,23 +575,12 @@ mod tests {
         let mut out = [0u8; 128];
         let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
         let done = engine
-            .format(&tokens, &mut out, &mut receipts)
+            .format_receipts(&tokens, &mut out, &mut receipts)
             .expect("format");
         (
             String::from_utf8(out[..done.len].to_vec()).expect("utf8"),
             receipts[..done.spans].to_vec(),
         )
-    }
-
-    #[test]
-    fn new_loads_initial_cells() {
-        let t = tables();
-        let engine = Engine::new(&t);
-        let cell = cell_index(DOMAIN_TIME, SHAPE_DT);
-        assert_eq!(
-            engine.cells().load(cell),
-            pack([C_TIME, C_FOLD2, 0, 0], [0; 4])
-        );
     }
 
     #[test]
@@ -608,9 +640,8 @@ mod tests {
         let engine = Engine::new(&t);
         let tokens: [&[u8]; 3] = [b"five", b"thirty", b"pm"];
         let mut out = [0u8; 4];
-        let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
         assert_eq!(
-            engine.format(&tokens, &mut out, &mut receipts).err(),
+            engine.format(&tokens, &mut out).err(),
             Some(FormatError::Overflow)
         );
     }
@@ -621,97 +652,9 @@ mod tests {
         let engine = Engine::new(&t);
         let tokens: [&[u8]; 9] = [b"at"; 9];
         let mut out = [0u8; 64];
-        let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
         assert_eq!(
-            engine.format(&tokens, &mut out, &mut receipts).err(),
+            engine.format(&tokens, &mut out).err(),
             Some(FormatError::TooManyTokens)
-        );
-    }
-
-    #[test]
-    fn resolve_matches_target_against_cell_candidates() {
-        let t = tables();
-        let engine = Engine::new(&t);
-        let tokens: [&[u8]; 2] = [b"at", b"five"];
-        let receipt = fmt(&engine, "at five").1[0];
-        assert_eq!(
-            engine.resolve(receipt, &tokens, b"five"),
-            Ok(CorrectionEvent {
-                cell: receipt.cell,
-                candidate: C_RAW1,
-                _pad: 0
-            })
-        );
-        assert_eq!(
-            engine.resolve(receipt, &tokens, b"6"),
-            Err(CorrectionError::OutOfSet)
-        );
-        assert_eq!(engine.out_of_set(), 1);
-    }
-
-    #[test]
-    fn resolve_rejects_abstained_and_invalid_receipts() {
-        let t = tables();
-        let engine = Engine::new(&t);
-        let tokens: [&[u8]; 3] = [b"hello", b"five", b"thirty"];
-        let abstained = fmt(&engine, "hello five thirty").1[0];
-        assert_eq!(
-            engine.resolve(abstained, &tokens, b"5:30"),
-            Err(CorrectionError::Abstained)
-        );
-        let past_end = SpanReceipt {
-            cell: cell_index(DOMAIN_CARDINAL, SHAPE_D),
-            start: 2,
-            len: 2,
-        };
-        assert_eq!(
-            engine.resolve(past_end, &tokens, b"5"),
-            Err(CorrectionError::InvalidReceipt)
-        );
-    }
-
-    #[test]
-    fn h_corrections_flip_output_after_worker_applies_them() {
-        let t = tables();
-        let engine = Engine::new(&t);
-        let (mut producer, mut consumer) = channel(8);
-        let tokens: [&[u8]; 2] = [b"at", b"five"];
-        for i in 0..DEFAULT_H {
-            let receipt = fmt(&engine, "at five").1[0];
-            assert_eq!(
-                engine.correct(&mut producer, receipt, &tokens, b"five"),
-                Ok(C_RAW1)
-            );
-            while let Some(ev) = consumer.pop() {
-                engine.cells().apply(ev.cell, ev.candidate, DEFAULT_H);
-            }
-            let expected = if i + 1 < DEFAULT_H { "at 5" } else { "at five" };
-            assert_eq!(
-                fmt(&engine, "at five").0,
-                expected,
-                "after {} corrections",
-                i + 1
-            );
-        }
-    }
-
-    #[test]
-    fn full_ring_reports_dropped() {
-        let t = tables();
-        let engine = Engine::new(&t);
-        let (mut producer, _consumer) = channel(2);
-        let tokens: [&[u8]; 2] = [b"at", b"five"];
-        let receipt = fmt(&engine, "at five").1[0];
-        for _ in 0..2 {
-            assert!(
-                engine
-                    .correct(&mut producer, receipt, &tokens, b"five")
-                    .is_ok()
-            );
-        }
-        assert_eq!(
-            engine.correct(&mut producer, receipt, &tokens, b"five"),
-            Err(CorrectionError::Dropped)
         );
     }
 
@@ -795,15 +738,6 @@ mod tests {
         }
         let (_, receipts) = fmt(&engine, "minus sixty six kilograms");
         assert_eq!((receipts[0].start, receipts[0].len), (0, 4));
-        let tokens: Vec<&[u8]> = ["minus", "sixty", "six", "kilograms"]
-            .iter()
-            .map(|w| w.as_bytes())
-            .collect();
-        let ev = engine
-            .resolve(receipts[0], &tokens, b"-66 kilograms")
-            .expect("prefixed span resolves");
-        assert_eq!(ev.cell, receipts[0].cell);
-        assert_eq!(ev.candidate, rank0(engine.cells.load(ev.cell)));
     }
 
     #[test]

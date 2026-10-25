@@ -54,7 +54,7 @@ tests/
 └── fuzz.rs           random-input invariants                      11
 ```
 
-`build.rs` mirrors `tables/` and `learn/cell.rs` with inline `#[path]` modules. A new file under `tables/` that the builder needs must also be added there and to its `SOURCES` list.
+`build.rs` mirrors `tables/` with inline `#[path]` modules. A new file under `tables/` that the builder needs must also be added there and to its `SOURCES` list.
 
 ## Current work
 

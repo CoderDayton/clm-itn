@@ -47,21 +47,10 @@ pub const DOMAIN_MONTH_DATE: DomainId = 13;
 pub const DOMAIN_MAY_DATE: DomainId = 14;
 pub const START_CLASSES: [ClassId; 2] = [MONTH, MAY];
 
-pub const ROLE_DIGIT: Role = 1;
-pub const ROLE_TEEN: Role = 2;
-pub const ROLE_TENS: Role = 3;
-pub const ROLE_HUNDRED: Role = 4;
-pub const ROLE_SCALE: Role = 5;
-pub const ROLE_POINT: Role = 6;
-pub const ROLE_AND: Role = 7;
-pub const ROLE_OH: Role = 8;
-pub const ROLE_ORDINAL: Role = 9;
-pub const ROLE_MSCALE: Role = 10;
-pub const ROLE_CURRENCY: Role = 11;
-pub const ROLE_AMPM: Role = 12;
-pub const ROLE_UNIT: Role = 13;
-pub const ROLE_MINUS: Role = 14;
-pub const ROLE_MER: Role = 15;
+pub use crate::types::{
+    ROLE_AMPM, ROLE_AND, ROLE_CURRENCY, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MER, ROLE_MINUS,
+    ROLE_MSCALE, ROLE_OH, ROLE_ORDINAL, ROLE_POINT, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, ROLE_UNIT,
+};
 
 pub const TIME_RIGHT: [ClassId; 3] = [AM, PM, OCLOCK];
 pub const TIME_LEFT: ClassId = AT;
