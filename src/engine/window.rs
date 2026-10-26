@@ -443,7 +443,37 @@ const FRACTION_WORDS: [&str; 14] = [
 const SMALL: [&str; 9] = [
     "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
 ];
-const ONE_AFTER_WORD: [&str; 5] = ["no", "which", "this", "that", "the"];
+const ONE_AFTER_WORD: [&str; 27] = [
+    "no",
+    "which",
+    "whichever",
+    "this",
+    "that",
+    "the",
+    "each",
+    "every",
+    "any",
+    "other",
+    "old",
+    "new",
+    "last",
+    "next",
+    "same",
+    "right",
+    "wrong",
+    "bottom",
+    "top",
+    "best",
+    "first",
+    "big",
+    "small",
+    "little",
+    "main",
+    "basic",
+    "good",
+];
+/// After a plain word, "one" before these is a pronoun ("pick one that").
+const ONE_BEFORE_CLAUSE: [&str; 6] = ["is", "was", "that", "that's", "which", "who"];
 const ONE_BEFORE_WORD: [&str; 9] = [
     "of", "more", "another", "at", "way", "thing", "sec", "every", "piece",
 ];
@@ -507,8 +537,11 @@ fn word_sense(words: &[Word], i: usize) -> Option<(usize, usize)> {
     if one && eq(next, "by") && eq(text(2), "one") {
         return Some((i, i + 2));
     }
+    // A cue word before it ("step one.", "number one is") makes it a label.
+    let plain_prev = at(-1).is_none_or(|w| w.info.class == CLASS_UNKNOWN);
     let pronoun = one
-        && ((any(prev, &ONE_AFTER_WORD) && !numeric(1))
+        && ((any(prev, &ONE_AFTER_WORD) && (!numeric(1) || eq(next, "and")))
+            || (plain_prev && (at(1).is_none() || any(next, &ONE_BEFORE_CLAUSE)))
             || (any(next, &ONE_BEFORE_WORD) && !numeric(2))
             || (eq(next, "day") && at(-1).is_none())
             || (eq(prev, "in") && eq(next, "piece"))

@@ -272,11 +272,29 @@ fn single_digits_keeps_one_to_nine_as_words_when_not_a_count() {
         "six of one half a dozen of the other",
         "two thirds of voters agree",
         "it's three quarters full",
+        "override the other one.",
+        "delete the old one, then",
+        "whichever one.",
+        "the bottom one is how",
+        "pick one that works",
+        "One is fine",
+        "every one costed money",
+        "Here's one.",
+        "is it the Orca one?",
+        "pick up the next one and make it",
+        "if there's one that's smaller",
     ];
     for input in words {
         assert_eq!(line(&digits, input), input, "{input:?}");
     }
     let counts = [
+        ("all into one file", "all into 1 file"),
+        ("the next five years", "the next 5 years"),
+        ("one terabyte", "1 terabyte"),
+        ("two or three seconds", "2 or 3 seconds"),
+        ("go with option one, and", "go with option 1, and"),
+        ("on step one.", "on step 1."),
+        ("number one is a", "number 1 is a"),
         ("one of five", "1 of 5"),
         ("one in five people", "1 in 5 people"),
         ("in one day", "in 1 day"),

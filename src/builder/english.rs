@@ -521,6 +521,7 @@ pub const CLASSES: &[ClassDef] = &[
             ("chapter", 0),
             ("episode", 0),
             ("level", 0),
+            ("option", 0),
             ("page", 0),
             ("part", 0),
             ("phase", 0),
