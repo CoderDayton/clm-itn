@@ -2,6 +2,15 @@
 
 Every Rust block here runs as a doctest (`cargo test --doc`).
 
+- [Normalize a line](#normalize-a-line)
+- [Number styles](#number-styles)
+- [Fast path: up to 8 tokens, no allocation](#fast-path-up-to-8-tokens-no-allocation)
+- [Errors](#errors)
+- [Share one engine across threads](#share-one-engine-across-threads)
+- [Without `std`](#without-std)
+- [Command line](#command-line)
+- [Scoring your own data](#scoring-your-own-data)
+
 ## Normalize a line
 
 `Engine::normalize` takes any length of spoken-form text and returns a `String`. It never cuts a number and keeps punctuation in place.
