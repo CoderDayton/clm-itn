@@ -1,114 +1,8 @@
-pub const MAX_FAILURES: usize = 5;
-pub const MAX_PARTIAL_EXAMPLES: usize = 3;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Case {
-    pub spoken: String,
-    pub written: String,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
     pub input: String,
     pub got: String,
     pub want: String,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct CategoryScore {
-    pub name: String,
-    pub total: usize,
-    pub correct: usize,
-    pub digits: usize,
-    pub partial: usize,
-    pub partial_examples: Vec<Failure>,
-    pub failures: Vec<Failure>,
-}
-
-#[derive(Debug, Default)]
-pub struct Tally {
-    pub categories: Vec<CategoryScore>,
-}
-
-pub fn parse_cases(text: &str) -> (Vec<Case>, usize) {
-    let mut cases = Vec::new();
-    let mut bad = 0;
-    for line in text.lines() {
-        let line = line.trim_end_matches('\r');
-        if line.trim().is_empty() {
-            continue;
-        }
-        match line.split_once('~') {
-            Some((s, w)) if !s.trim().is_empty() => cases.push(Case {
-                spoken: s.trim().to_string(),
-                written: w.trim().to_string(),
-            }),
-            _ => bad += 1,
-        }
-    }
-    (cases, bad)
-}
-
-pub fn category_of(file_name: &str) -> Option<&str> {
-    file_name
-        .strip_prefix("test_cases_")?
-        .strip_suffix(".txt")
-        .filter(|c| !c.is_empty())
-}
-
-impl Tally {
-    pub fn record(&mut self, category: &str, input: &str, got: &str, want: &str) {
-        let idx = match self.categories.iter().position(|c| c.name == category) {
-            Some(i) => i,
-            None => {
-                self.categories.push(CategoryScore {
-                    name: category.to_string(),
-                    ..CategoryScore::default()
-                });
-                self.categories.len() - 1
-            }
-        };
-        let c = &mut self.categories[idx];
-        c.total += 1;
-        c.digits += usize::from(value_match(category, got, want));
-        if got == want {
-            c.correct += 1;
-        } else if c.failures.len() < MAX_FAILURES {
-            c.failures.push(Failure {
-                input: input.to_string(),
-                got: got.to_string(),
-                want: want.to_string(),
-            });
-        }
-    }
-
-    pub fn record_partial(&mut self, category: &str, input: &str, got: &str, want: &str) {
-        let Some(c) = self.categories.iter_mut().find(|c| c.name == category) else {
-            return;
-        };
-        c.partial += 1;
-        if c.partial_examples.len() < MAX_PARTIAL_EXAMPLES {
-            c.partial_examples.push(Failure {
-                input: input.to_string(),
-                got: got.to_string(),
-                want: want.to_string(),
-            });
-        }
-    }
-
-    pub fn overall_partial(&self) -> usize {
-        self.categories.iter().map(|c| c.partial).sum()
-    }
-
-    pub fn overall_digits(&self) -> usize {
-        self.categories.iter().map(|c| c.digits).sum()
-    }
-
-    pub fn overall(&self) -> (usize, usize) {
-        self.categories
-            .iter()
-            .fold((0, 0), |(c, t), s| (c + s.correct, t + s.total))
-    }
 }
 
 pub fn digit_runs(s: &str) -> Vec<String> {
@@ -297,80 +191,6 @@ pub fn accuracy(correct: usize, total: usize) -> f64 {
 mod tests {
     use super::*;
 
-    fn case(s: &str, w: &str) -> Case {
-        Case {
-            spoken: s.into(),
-            written: w.into(),
-        }
-    }
-
-    #[test]
-    fn parses_spoken_tilde_written_lines() {
-        let (cases, bad) = parse_cases("two p m~02:00 p.m.\nsecond~2nd\n");
-        assert_eq!(
-            cases,
-            vec![case("two p m", "02:00 p.m."), case("second", "2nd")]
-        );
-        assert_eq!(bad, 0);
-    }
-
-    #[test]
-    fn handles_crlf_blank_lines_and_missing_trailing_newline() {
-        let (cases, bad) = parse_cases("one~1\r\n\r\n\ntwo~2");
-        assert_eq!(cases, vec![case("one", "1"), case("two", "2")]);
-        assert_eq!(bad, 0);
-    }
-
-    #[test]
-    fn splits_on_first_tilde_only_and_counts_lines_without_one() {
-        let (cases, bad) = parse_cases("a tilde~~\nno separator here\n~empty spoken\n");
-        assert_eq!(cases, vec![case("a tilde", "~")]);
-        assert_eq!(bad, 2);
-    }
-
-    #[test]
-    fn category_comes_from_file_name() {
-        assert_eq!(category_of("test_cases_cardinal.txt"), Some("cardinal"));
-        assert_eq!(
-            category_of("test_cases_decimal_cased.txt"),
-            Some("decimal_cased")
-        );
-        assert_eq!(category_of("README.md"), None);
-        assert_eq!(category_of("test_cases_.txt"), None);
-    }
-
-    #[test]
-    fn tally_counts_exact_matches_per_category_in_first_seen_order() {
-        let mut t = Tally::default();
-        t.record("time", "two p m", "02:00 p.m.", "02:00 p.m.");
-        t.record("cardinal", "one", "1", "1");
-        t.record("time", "two thirty", "2:30", "02:30");
-        t.record("time", "x", "1 ", "1");
-        let names: Vec<_> = t.categories.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(names, ["time", "cardinal"]);
-        assert_eq!((t.categories[0].correct, t.categories[0].total), (1, 3));
-        assert_eq!(
-            t.categories[0].failures[0],
-            Failure {
-                input: "two thirty".into(),
-                got: "2:30".into(),
-                want: "02:30".into()
-            }
-        );
-        assert_eq!(t.overall(), (2, 4));
-    }
-
-    #[test]
-    fn tally_keeps_at_most_five_failures() {
-        let mut t = Tally::default();
-        for i in 0..9 {
-            t.record("c", &i.to_string(), "got", "want");
-        }
-        assert_eq!(t.categories[0].total, 9);
-        assert_eq!(t.categories[0].failures.len(), MAX_FAILURES);
-        assert_eq!(t.categories[0].failures[4].input, "4");
-    }
-
     #[test]
     fn digit_runs_ignore_letters_punctuation_and_thousands_commas() {
         assert_eq!(digit_runs("January 8, 1815"), ["8", "1815"]);
@@ -391,17 +211,6 @@ mod tests {
         assert!(!digits_match("8 1815", "1815 8"));
         assert!(!digits_match("1 dog", "one dog"));
         assert!(!digits_match("12.7", "127"));
-    }
-
-    #[test]
-    fn tally_counts_digit_matches() {
-        let mut t = Tally::default();
-        t.record("date", "x", "january 8 1815", "January 8, 1815");
-        t.record("date", "x", "january 8 1816", "January 8, 1815");
-        t.record("date", "x", "1815", "1815");
-        let c = &t.categories[0];
-        assert_eq!((c.total, c.correct, c.digits), (3, 1, 2));
-        assert_eq!(t.overall_digits(), 2);
     }
 
     fn number_or_unit(w: &str) -> WordRole {
@@ -482,22 +291,6 @@ mod tests {
     }
 
     #[test]
-    fn tally_counts_partials_and_keeps_three_examples() {
-        let mut t = Tally::default();
-        for i in 0..5 {
-            t.record("time", &i.to_string(), "1 a m", "1 a.m.");
-            t.record_partial("time", &i.to_string(), "1 a m", "1 a.m.");
-        }
-        t.record("cardinal", "x", "1", "1");
-        let c = &t.categories[0];
-        assert_eq!(c.partial, 5);
-        assert_eq!(c.partial_examples.len(), MAX_PARTIAL_EXAMPLES);
-        assert_eq!(c.partial_examples[2].input, "2");
-        assert_eq!(t.categories[1].partial, 0);
-        assert_eq!(t.overall_partial(), 5);
-    }
-
-    #[test]
     fn time_value_parses_hour_minute_and_meridiem() {
         use Meridiem::{Am, Pm};
         assert_eq!(time_value("08:06"), Some((8, 6, None)));
@@ -542,13 +335,6 @@ mod tests {
         assert!(value_match("TIME", "8:06", "08:06"));
         assert!(!value_match("cardinal", "2 p.m.", "02:00 p.m."));
         assert!(value_match("cardinal", "1,000", "1000"));
-    }
-
-    #[test]
-    fn tally_uses_time_value_for_time_digits() {
-        let mut t = Tally::default();
-        t.record("time", "two p m", "2:00 p.m.", "02:00 p.m.");
-        assert_eq!(t.categories[0].digits, 1);
     }
 
     #[test]

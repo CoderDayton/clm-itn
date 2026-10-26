@@ -11,7 +11,7 @@ readme = "README.md"
 keywords = ["itn", "text-normalization", "speech", "asr", "nlp"]
 categories = ["text-processing", "parsing"]
 default-run = "clm-itn"
-exclude = [".github/", "CLAUDE.md", "Scripts.toml", "lefthook.yml", "tools/", "docs/TEAM.md"]
+exclude = [".github/", "CLAUDE.md", "Scripts.toml", "lefthook.yml", "tools/"]
 
 [features]
 default = ["std"]

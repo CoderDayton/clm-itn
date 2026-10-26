@@ -43,7 +43,7 @@ src/
 ├── main.rs       CLI
 └── bin/          clm-bench (latency), clm-eval (accuracy)
 build.rs          generates the static English tables
-docs/             SPEC.md, examples.md, TRAINING.md, TEAM.md
+docs/             SPEC.md, examples.md, TRAINING.md
 tests/            public API, CLI, dictation, end-to-end, fuzz, static tables
 ```
 
@@ -103,10 +103,10 @@ cargo build --release --bin clm-bench
 taskset -c 2 target/release/clm-bench
 ```
 
-Accuracy against NVIDIA NeMo's English ITN test cases (Apache-2.0; download `tests/nemo_text_processing/en/data_inverse_text_normalization/test_cases_*.txt` from `NVIDIA/NeMo-text-processing` into a directory):
+Accuracy against the dictation gold set (`spoken`, `written`, optional tag per line; tags ending in `!` mark debatable lines, left out of the "firm" score):
 
 ```bash
-cargo run --release --bin clm-eval -- <dir>
+cargo run --release --bin clm-eval -- --lines tests/data/dictation.tsv
 ```
 
 Corpus training (`tools/pairgen/` → `clm-learn`) and its results: [`docs/TRAINING.md`](docs/TRAINING.md).

@@ -42,7 +42,6 @@ pub struct PairTally {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
-    Cases(String),
     Pairs { path: String, isolated: bool },
     Lines(LinesOpts),
     Spell(String),
@@ -105,7 +104,6 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Mode, Strin
         }),
         [flag, rest @ ..] if flag == "--lines" => lines_opts(rest).map(Mode::Lines),
         [flag, path] if flag == "--spell" => Ok(Mode::Spell(path.clone())),
-        [dir] if !dir.starts_with("--") => Ok(Mode::Cases(dir.clone())),
         _ => Err(crate::USAGE.to_string()),
     }
 }
@@ -401,8 +399,8 @@ mod tests {
     }
 
     #[test]
-    fn args_select_cases_dir_or_pairs_file() {
-        assert_eq!(args(&["data"]), Ok(Mode::Cases("data".into())));
+    fn args_select_a_pairs_file_and_reject_a_bare_path() {
+        assert!(args(&["data"]).is_err());
         assert_eq!(
             args(&["--pairs", "val.txt"]),
             Ok(Mode::Pairs {

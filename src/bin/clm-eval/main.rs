@@ -3,14 +3,13 @@ mod lines;
 mod pairs;
 mod spell;
 
-use std::path::Path;
 use std::process::ExitCode;
 
 use clm_itn::engine::window::format_line;
 use clm_itn::types::ROLE_NONE;
 use clm_itn::{Engine, Style};
 
-use eval::{Tally, WordRole, accuracy, category_of, is_partial, parse_cases};
+use eval::{WordRole, accuracy, is_partial};
 
 fn word_role(t: &clm_itn::Tables, w: &str) -> WordRole {
     let c = t.lexicon.lookup(w.as_bytes()).class as usize;
@@ -28,57 +27,18 @@ fn number_word(t: &clm_itn::Tables, w: &str) -> bool {
     word_role(t, w) == WordRole::Number
 }
 
-const USAGE: &str = "usage: clm-eval <dir with test_cases_*.txt> | --pairs <pairgen split file> | --lines <spoken TAB written [TAB tag] file> [--tag <t>] [--all-failures] [--single-digits] | --spell <id TAB raw TAB final file>";
+const USAGE: &str = "usage: clm-eval --pairs <pairgen split file> | --lines <spoken TAB written [TAB tag] file> [--tag <t>] [--all-failures] [--single-digits] | --spell <id TAB raw TAB final file>";
 
 fn main() -> ExitCode {
-    let dir = match pairs::parse_args(std::env::args().skip(1)) {
-        Ok(pairs::Mode::Cases(dir)) => dir,
-        Ok(pairs::Mode::Pairs { path, isolated }) => return run_pairs(&path, isolated),
-        Ok(pairs::Mode::Lines(opts)) => return run_lines(&opts),
-        Ok(pairs::Mode::Spell(path)) => return spell::run(&path),
+    match pairs::parse_args(std::env::args().skip(1)) {
+        Ok(pairs::Mode::Pairs { path, isolated }) => run_pairs(&path, isolated),
+        Ok(pairs::Mode::Lines(opts)) => run_lines(&opts),
+        Ok(pairs::Mode::Spell(path)) => spell::run(&path),
         Err(e) => {
             eprintln!("{e}");
-            return ExitCode::from(2);
-        }
-    };
-    let files = match case_files(Path::new(&dir)) {
-        Ok(f) if !f.is_empty() => f,
-        Ok(_) => {
-            eprintln!("no test_cases_*.txt files in {dir}");
-            return ExitCode::FAILURE;
-        }
-        Err(e) => {
-            eprintln!("cannot read {dir}: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let tables = clm_itn::english();
-    let engine = Engine::new(tables);
-
-    let mut tally = Tally::default();
-    let mut malformed = 0;
-    let mut got = String::new();
-    for (category, path) in &files {
-        let text = match std::fs::read_to_string(path) {
-            Ok(t) => t,
-            Err(e) => {
-                eprintln!("skipping {}: {e}", path.display());
-                continue;
-            }
-        };
-        let (cases, bad) = parse_cases(&text);
-        malformed += bad;
-        for c in &cases {
-            got.clear();
-            format_line(&engine, &c.spoken, &mut got);
-            tally.record(category, &c.spoken, &got, &c.written);
-            if is_partial(&got, &c.written, |w| word_role(tables, w)) {
-                tally.record_partial(category, &c.spoken, &got, &c.written);
-            }
+            ExitCode::from(2)
         }
     }
-    report(&tally, malformed);
-    ExitCode::SUCCESS
 }
 
 fn run_lines(opts: &pairs::LinesOpts) -> ExitCode {
@@ -279,94 +239,6 @@ fn report_pairs(path: &str, tally: &pairs::PairTally, malformed: usize) {
             println!(
                 "  {:?}\n    got  {:?}\n    want {:?}",
                 m.spoken, m.got, m.want
-            );
-        }
-    }
-}
-
-fn case_files(dir: &Path) -> std::io::Result<Vec<(String, std::path::PathBuf)>> {
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_file() {
-            continue;
-        }
-        let name = entry.file_name();
-        if let Some(cat) = name.to_str().and_then(category_of) {
-            files.push((cat.to_string(), entry.path()));
-        }
-    }
-    files.sort();
-    Ok(files)
-}
-
-fn report(tally: &Tally, malformed: usize) {
-    println!(
-        "{:<20} {:>6} {:>7} {:>8} {:>8} {:>12}",
-        "category", "cases", "correct", "accuracy", "digits", "partial"
-    );
-    let mut groups = [(0usize, 0usize, 0usize, 0usize); 2];
-    for c in &tally.categories {
-        println!(
-            "{:<20} {:>6} {:>7} {:>7.1}% {:>7.1}% {:>5} {:>5.1}%",
-            c.name,
-            c.total,
-            c.correct,
-            accuracy(c.correct, c.total),
-            accuracy(c.digits, c.total),
-            c.partial,
-            accuracy(c.partial, c.total)
-        );
-        let g = &mut groups[usize::from(c.name.ends_with("_cased"))];
-        g.0 += c.correct;
-        g.1 += c.total;
-        g.2 += c.digits;
-        g.3 += c.partial;
-    }
-    let (correct, total) = tally.overall();
-    println!("{}", "-".repeat(66));
-    for (label, (c, t, d, p)) in ["plain files", "cased files"].iter().zip(groups) {
-        println!(
-            "{label:<20} {t:>6} {c:>7} {:>7.1}% {:>7.1}% {p:>5} {:>5.1}%",
-            accuracy(c, t),
-            accuracy(d, t),
-            accuracy(p, t)
-        );
-    }
-    let p = tally.overall_partial();
-    println!(
-        "{:<20} {total:>6} {correct:>7} {:>7.1}% {:>7.1}% {p:>5} {:>5.1}%",
-        "overall",
-        accuracy(correct, total),
-        accuracy(tally.overall_digits(), total),
-        accuracy(p, total)
-    );
-    println!("{DIGITS_LEGEND}");
-    println!("{PARTIAL_LEGEND}");
-    println!("malformed lines skipped: {malformed}");
-
-    for c in &tally.categories {
-        if c.partial_examples.is_empty() {
-            continue;
-        }
-        println!("\n{} partial (first {}):", c.name, c.partial_examples.len());
-        for f in &c.partial_examples {
-            println!(
-                "  {:?}\n    got  {:?}\n    want {:?}",
-                f.input, f.got, f.want
-            );
-        }
-    }
-
-    for c in &tally.categories {
-        if c.failures.is_empty() {
-            continue;
-        }
-        println!("\n{} failures (first {}):", c.name, c.failures.len());
-        for f in &c.failures {
-            println!(
-                "  {:?}\n    got  {:?}\n    want {:?}",
-                f.input, f.got, f.want
             );
         }
     }
