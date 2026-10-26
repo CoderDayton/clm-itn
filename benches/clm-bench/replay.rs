@@ -19,12 +19,14 @@ pub struct CorpusOpts {
     pub tag: Option<String>,
     pub all_failures: bool,
     pub off: Vec<Setting>,
+    /// Also time each line cut into sentences, normalized back to back.
+    pub sentences: bool,
 }
 
 pub const DEFAULT_N: usize = 1_000_000;
 pub const DEFAULT_SEED: u64 = 1;
 pub const USAGE: &str = "usage: cargo bench --bench clm-bench -- [--n <count>] [--seed <u64>] [--tiers]
-       cargo bench --bench clm-bench -- --corpus <file|folder> [--passes <count>] [--tag <t>] [--all-failures] [--no-<setting>]...
+       cargo bench --bench clm-bench -- --corpus <file|folder> [--passes <count>] [--tag <t>] [--all-failures] [--sentences] [--no-<setting>]...
        cargo bench --bench clm-bench -- --pairs <pairgen split file> [--isolated]
        cargo bench --bench clm-bench -- --spell <id TAB raw TAB final file>";
 
@@ -45,6 +47,7 @@ fn positive(flag: &str, v: &str) -> Result<usize, String> {
 pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Mode, String> {
     let (mut n, mut seed, mut tiers) = (None, None, false);
     let (mut corpus, mut passes, mut tag, mut all_failures) = (None, None, None, false);
+    let mut sentences = false;
     let mut off: Vec<Setting> = Vec::new();
     let (mut pairs, mut isolated, mut spell) = (None, false, None);
     let mut it = args.into_iter();
@@ -70,6 +73,7 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Mode, Strin
             "--passes" => once(&mut passes, &flag, positive(&flag, &value()?)?)?,
             "--tag" => once(&mut tag, &flag, value()?)?,
             "--all-failures" => all_failures = true,
+            "--sentences" => sentences = true,
             "--pairs" => once(&mut pairs, &flag, value()?)?,
             "--isolated" => isolated = true,
             "--spell" => once(&mut spell, &flag, value()?)?,
@@ -87,10 +91,11 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Mode, Strin
             "--n/--seed/--tiers, --corpus, --pairs and --spell are separate modes\n{USAGE}"
         ));
     }
-    let corpus_flags = passes.is_some() || tag.is_some() || all_failures || !off.is_empty();
+    let corpus_flags =
+        passes.is_some() || tag.is_some() || all_failures || sentences || !off.is_empty();
     if corpus_flags && corpus.is_none() {
         return Err(format!(
-            "--passes, --tag, --all-failures and --no-<setting> need --corpus\n{USAGE}"
+            "--passes, --tag, --all-failures, --sentences and --no-<setting> need --corpus\n{USAGE}"
         ));
     }
     if isolated && pairs.is_none() {
@@ -103,6 +108,7 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Mode, Strin
             tag,
             all_failures,
             off,
+            sentences,
         }),
         (_, Some(path), _) => Mode::Pairs { path, isolated },
         (_, _, Some(path)) => Mode::Spell(path),

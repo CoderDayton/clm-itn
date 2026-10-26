@@ -183,6 +183,9 @@ fn run_corpus(
         );
         let spoken: Vec<&str> = cases.iter().map(|c| c.spoken.as_str()).collect();
         report_lines(&engine, &spoken, opts.passes, overhead, ns_per_tick);
+        if opts.sentences {
+            report_sentences(&engine, &spoken, opts.passes, overhead, ns_per_tick);
+        }
     }
     ExitCode::SUCCESS
 }
@@ -234,6 +237,47 @@ fn report_lines(
         }
     }
     println!("result:         REPORT ONLY (p99 {p99:.1} ns vs budget {P99_LIMIT_NS} ns)");
+}
+
+/// One sample per line: its sentences normalized back to back, to compare
+/// with the whole line in one call.
+fn report_sentences(
+    engine: &Normalizer,
+    spoken: &[&str],
+    passes: usize,
+    overhead: u64,
+    ns_per_tick: f64,
+) {
+    let pieces: Vec<Vec<&str>> = spoken.iter().map(|s| lines::sentences(s)).collect();
+    let count: usize = pieces.iter().map(Vec::len).sum();
+    println!(
+        "sentences:      {count} from {} lines, timed back to back as one sample per line",
+        spoken.len()
+    );
+    let mut out = String::new();
+    let mut run = |line: &[&str]| {
+        for s in line {
+            out.clear();
+            engine.normalize_into(black_box(s), &mut out);
+            black_box(&out);
+        }
+    };
+    pieces.iter().for_each(|line| run(line));
+    let mut ticks = Vec::with_capacity(pieces.len() * passes);
+    for _ in 0..passes {
+        for line in &pieces {
+            let t0 = clock::start();
+            run(line);
+            let t1 = clock::end();
+            ticks.push(replay::net_ticks(t0, t1, overhead));
+        }
+    }
+    ticks.sort_unstable();
+    let pct = |p: f64| clock::ticks_to_ns(replay::percentile(&ticks, p) as u64, ns_per_tick);
+    println!("sentences p50:  {:.1} ns", pct(0.50));
+    println!("sentences p99:  {:.1} ns", pct(0.99));
+    println!("sentences p99.9: {:.1} ns", pct(0.999));
+    println!("sentences max:  {:.1} ns", pct(1.0));
 }
 
 fn line_allocations(engine: &Normalizer, spoken: &[&str], reuse: bool) -> Vec<u64> {

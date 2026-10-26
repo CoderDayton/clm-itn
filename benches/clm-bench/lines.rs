@@ -312,6 +312,27 @@ impl Json<'_> {
     }
 }
 
+/// Cuts after each `.`, `?` or `!` that a space or the end follows, so
+/// `$5.50` stays whole. Pieces are trimmed; blank ones are dropped.
+pub fn sentences(line: &str) -> Vec<&str> {
+    let b = line.as_bytes();
+    let mut pieces = Vec::new();
+    let mut start = 0;
+    for (i, &c) in b.iter().enumerate() {
+        let next_is_space = b.get(i + 1).is_none_or(u8::is_ascii_whitespace);
+        if matches!(c, b'.' | b'?' | b'!') && next_is_space {
+            pieces.push(&line[start..=i]);
+            start = i + 1;
+        }
+    }
+    pieces.push(&line[start..]);
+    pieces
+        .into_iter()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 pub fn per_line(samples: &[u32], lines: usize, p: f64) -> Vec<u32> {
     (0..lines)
         .map(|i| {

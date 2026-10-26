@@ -1,4 +1,4 @@
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::{format, vec};
 
@@ -6,8 +6,8 @@ use crate::engine::Normalizer;
 use crate::engine::span::fold_left;
 use crate::tables::{Tables, WORDS_FIRST_WORDS};
 use crate::types::{
-    CLASS_UNKNOWN, MAX_TOKENS, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE, ROLE_OH, ROLE_ORDINAL,
-    ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting, TokenInfo,
+    CLASS_UNKNOWN, MAX_TOKENS, ROLE_AND, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE, ROLE_OH,
+    ROLE_ORDINAL, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting, TokenInfo,
 };
 
 const LINE_OUT: usize = 512;
@@ -56,6 +56,8 @@ fn trail_punct(c: char) -> bool {
 
 #[derive(Clone, Copy)]
 struct Word<'a> {
+    /// The whitespace before the word as written; empty for a word a rewrite made.
+    gap: &'a str,
     lead: &'a str,
     core: &'a str,
     trail: &'a str,
@@ -82,6 +84,10 @@ const W_CUT: u16 = 1 << 6;
 const W_DATED: u16 = 1 << 7;
 /// Printed as spoken, never formatted.
 const W_KEEP: u16 = 1 << 8;
+/// "trillion" or above: read as "billion", so never folded with lower groups.
+const W_BIG: u16 = 1 << 9;
+/// "thousand" and above.
+const W_SCALE: u16 = 1 << 10;
 
 impl Word<'_> {
     #[inline(always)]
@@ -154,6 +160,7 @@ fn tag_class<'a>(
     let role = full & 0x0F;
     let b = bare(core);
     Word {
+        gap: "",
         lead,
         core,
         trail,
@@ -170,13 +177,26 @@ fn tag_class<'a>(
                 W_DIGITS,
             )
             | bit(role == ROLE_DIGIT || role == ROLE_OH, W_DIGIT)
-            | bit(role == ROLE_ORDINAL, W_ORDINAL),
+            | bit(role == ROLE_ORDINAL, W_ORDINAL)
+            | bit(role == ROLE_MSCALE && scale_exp(b) >= 12, W_BIG)
+            | bit(role == ROLE_SCALE || role == ROLE_MSCALE, W_SCALE),
         kind: kind(b),
     }
 }
 
+/// The lexicon entry of `core`. Scales past billion read as "billion", which
+/// prints the spoken word ("5 trillion").
+fn lookup(t: &Tables, core: &str) -> TokenInfo {
+    let info = t.lexicon.lookup(core.as_bytes());
+    if info.class == CLASS_UNKNOWN && scale_exp(core) >= 12 {
+        t.lexicon.lookup(b"billion")
+    } else {
+        info
+    }
+}
+
 fn tag<'a>(t: &Tables, lead: &'a str, core: &'a str, trail: &'a str) -> Word<'a> {
-    tag_class(t, t.lexicon.lookup(core.as_bytes()), lead, core, trail)
+    tag_class(t, lookup(t, core), lead, core, trail)
 }
 
 fn split_word<'a>(token: &'a str, t: &Tables) -> Word<'a> {
@@ -192,7 +212,7 @@ fn split_word<'a>(token: &'a str, t: &Tables) -> Word<'a> {
     if (start == 0 && end == token.len()) || start == end {
         return tag(t, "", token, "");
     }
-    let info = t.lexicon.lookup(&token.as_bytes()[start..end]);
+    let info = lookup(t, &token[start..end]);
     if info.class == CLASS_UNKNOWN {
         return tag(t, "", token, "");
     }
@@ -222,7 +242,11 @@ fn join_meridiem(words: &mut Vec<Word<'_>>, t: &Tables) {
                 } else {
                     next_trail
                 };
-                words[put] = tag(t, "", core, trail);
+                let gap = words[i].gap;
+                words[put] = Word {
+                    gap,
+                    ..tag(t, "", core, trail)
+                };
                 i += 2;
             }
             None => {
@@ -283,7 +307,11 @@ fn join_zone(words: &mut Vec<Word<'_>>, t: &Tables) {
                 } else {
                     last_trail
                 };
-                words[put] = tag(t, "", core, trail);
+                let gap = words[i].gap;
+                words[put] = Word {
+                    gap,
+                    ..tag(t, "", core, trail)
+                };
                 i += 3;
             }
             None => {
@@ -307,12 +335,14 @@ fn drop_twelve(words: &mut Vec<Word<'_>>) {
     for i in 0..words.len() {
         let w = &words[i];
         let twelve = w.core.eq_ignore_ascii_case("twelve") && w.trail.is_empty();
-        if !(twelve && words.get(i + 1).is_some_and(noon)) {
-            if put != i {
-                words[put] = words[i];
-            }
-            put += 1;
+        if twelve && words.get(i + 1).is_some_and(noon) {
+            words[i + 1].gap = words[i].gap;
+            continue;
         }
+        if put != i {
+            words[put] = words[i];
+        }
+        put += 1;
     }
     words.truncate(put);
 }
@@ -642,7 +672,15 @@ fn is(w: &Word, s: &str) -> bool {
     bare(w.core).eq_ignore_ascii_case(s)
 }
 
-const SCALE_WORDS: [&str; 4] = ["hundred", "thousand", "million", "billion"];
+const SCALE_WORDS: [&str; 7] = [
+    "hundred",
+    "thousand",
+    "million",
+    "billion",
+    "trillion",
+    "quadrillion",
+    "quintillion",
+];
 
 const F_EXPAND: u8 = 1;
 const F_PHONE: u8 = 2;
@@ -816,6 +854,7 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
                 let joined = tag(t, w.lead, "percent", n.trail);
                 out.push(Word {
                     said: "per cent",
+                    gap: w.gap,
                     ..joined
                 });
                 i += 2;
@@ -824,6 +863,7 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
                 let copies = if is(&w, "double") { 1 } else { 2 };
                 for k in 0..copies {
                     out.push(Word {
+                        gap: if k == 0 { w.gap } else { "" },
                         lead: if k == 0 { w.lead } else { "" },
                         said: if k == 0 { w.core } else { "" },
                         trail: "",
@@ -836,6 +876,7 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
                 let c = CENTURIES[century.unwrap_or_default()];
                 out.push(Word {
                     said: c,
+                    gap: w.gap,
                     ..tag(t, w.lead, c, n.trail)
                 });
                 i += 2;
@@ -849,6 +890,7 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
                 let hour = HOUR_WORDS[h - 1];
                 out.push(Word {
                     said: w.core,
+                    gap: w.gap,
                     ..tag(t, w.lead, hour, w.trail)
                 });
                 i += 1;
@@ -860,6 +902,7 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
                 let one = tag(t, w.lead, "one", w.trail);
                 out.push(Word {
                     said: w.core,
+                    gap: w.gap,
                     ..one
                 });
                 i += 1;
@@ -910,7 +953,11 @@ fn phone_hundreds<'a>(words: Vec<Word<'a>>, t: &Tables) -> Vec<Word<'a>> {
     for (w, z) in words.into_iter().zip(zeros) {
         if z {
             let oh = tag(t, "", "oh", "");
-            out.push(Word { said: w.core, ..oh });
+            out.push(Word {
+                said: w.core,
+                gap: w.gap,
+                ..oh
+            });
             out.push(Word { said: "", ..oh });
         } else {
             out.push(w);
@@ -1012,7 +1059,9 @@ fn ungroup_last(out: &mut String, body: usize) {
     let text = &out[body..];
     let text = text.strip_suffix(" hours").unwrap_or(text);
     let end = body + text.len();
-    let last = out[body..end].rfind(' ').map_or(body, |k| body + k + 1);
+    let last = out[body..end].rfind(char::is_whitespace).map_or(body, |k| {
+        body + k + out[body + k..].chars().next().map_or(1, char::len_utf8)
+    });
     let b = &out.as_bytes()[last..end];
     if b.len() == 5 && b[1] == b',' && b.iter().all(|&c| c == b',' || c.is_ascii_digit()) {
         out.remove(last + 1);
@@ -1022,25 +1071,40 @@ fn ungroup_last(out: &mut String, body: usize) {
 /// "192 dot 168 dot 1" -> "192.168.1".
 fn join_dots(out: &mut String, begin: usize) {
     let text = out.split_off(begin);
-    let toks: Vec<&str> = text.split(' ').collect();
+    let toks = gapped(&text);
     let digit = |c: char| c.is_ascii_digit();
     let glue = |k: usize| {
-        toks[k] == "dot"
+        toks[k].1 == "dot"
             && k > 0
             && k + 1 < toks.len()
-            && toks[k - 1].ends_with(digit)
-            && toks[k + 1].starts_with(digit)
+            && toks[k - 1].1.ends_with(digit)
+            && toks[k + 1].1.starts_with(digit)
     };
-    for (k, tok) in toks.iter().enumerate() {
+    for (k, &(gap, tok)) in toks.iter().enumerate() {
         if glue(k) {
             out.push('.');
             continue;
         }
-        if k > 0 && !glue(k - 1) {
-            out.push(' ');
+        if k == 0 || !glue(k - 1) {
+            out.push_str(gap);
         }
         out.push_str(tok);
     }
+    out.push_str(&text[text.trim_end().len()..]);
+}
+
+/// `text` cut at whitespace: each word with the whitespace before it.
+fn gapped(text: &str) -> Vec<(&str, &str)> {
+    let base = text.as_ptr().addr();
+    let mut end = 0;
+    text.split_whitespace()
+        .map(|tok| {
+            let at = tok.as_ptr().addr() - base;
+            let gap = &text[end..at];
+            end = at + tok.len();
+            (gap, tok)
+        })
+        .collect()
 }
 
 /// Joins a lone letter to the number before or after it: "4 k" -> "4k",
@@ -1048,9 +1112,9 @@ fn join_dots(out: &mut String, begin: usize) {
 /// and a letter in a spelled run ("d e 5") stays apart.
 fn join_letters(out: &mut String, begin: usize) {
     let text = out.split_off(begin);
-    let toks: Vec<&str> = text.split(' ').collect();
+    let toks = gapped(&text);
     let letter = |k: usize| {
-        let core = toks.get(k)?.trim_end_matches(trail_punct);
+        let core = toks.get(k)?.1.trim_end_matches(trail_punct);
         (core.len() == 1 && core.as_bytes()[0].is_ascii_alphabetic())
             .then(|| core.as_bytes()[0].to_ascii_lowercase())
     };
@@ -1059,7 +1123,7 @@ fn join_letters(out: &mut String, begin: usize) {
     };
     let digit = |c: char| c.is_ascii_digit();
     let joins = |k: usize| {
-        let (prev, tok) = (toks[k - 1], toks[k]);
+        let (prev, tok) = (toks[k - 1].1, toks[k].1);
         let after_number =
             prev.ends_with(digit) && lone(k) && letter(k).is_some_and(|l| l != b'a' && l != b'i');
         let before_number = prev.len() == 1
@@ -1069,26 +1133,85 @@ fn join_letters(out: &mut String, begin: usize) {
         after_number || before_number
     };
     out.reserve(text.len());
-    for (k, tok) in toks.iter().enumerate() {
-        if k > 0 && !joins(k) {
-            out.push(' ');
+    for (k, &(gap, tok)) in toks.iter().enumerate() {
+        if k == 0 || !joins(k) {
+            out.push_str(gap);
         }
         out.push_str(tok);
     }
+    out.push_str(&text[text.trim_end().len()..]);
+}
+
+/// Tabs and line breaks print as written, and no number or context crosses them.
+fn is_break(c: char) -> bool {
+    matches!(c, '\t'..='\r' | '\u{85}' | '\u{2028}' | '\u{2029}')
 }
 
 pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
-    let t = engine.tables;
-    let begin = out.len();
     let spaces = line.bytes().filter(|&b| b == b' ').count();
-    let mut words: Vec<Word> = Vec::with_capacity(spaces + 3);
+    let mut words = Vec::with_capacity(spaces + 3);
+    let mut rest = line;
+    loop {
+        let (end, ragged, cut) = tokenize(rest, engine.tables, &mut words);
+        let piece = cut.map_or(rest, |k| &rest[..k]);
+        words = format_piece(engine, piece, words, end, ragged, out);
+        let Some(k) = cut else { return };
+        let n = rest[k..].find(|c| !is_break(c)).unwrap_or(rest.len() - k);
+        out.push_str(&rest[k..k + n]);
+        rest = &rest[k + n..];
+        words.clear();
+    }
+}
+
+/// Splits `line` into words up to its first tab or line break, each with the
+/// whitespace before it. Returns the end of the last word, whether any gap
+/// between words is other than one space, and where the break starts.
+fn tokenize<'a>(
+    line: &'a str,
+    t: &Tables,
+    words: &mut Vec<Word<'a>>,
+) -> (usize, bool, Option<usize>) {
+    let base = line.as_ptr().addr();
+    let (mut end, mut ragged) = (0, false);
     for tok in line.split_whitespace() {
-        let w = split_word(tok, t);
+        let at = tok.as_ptr().addr() - base;
+        let gap = &line[end..at];
+        let usual = gap.len() == usize::from(end != 0) && (end == 0 || gap.as_bytes()[0] == b' ');
+        if !usual {
+            if let Some(k) = gap.find(is_break) {
+                return (end, ragged, Some(end + k));
+            }
+            ragged |= end != 0;
+        }
+        let mut w = split_word(tok, t);
+        w.gap = gap;
+        end = at + tok.len();
         match hyphenated(&w, t) {
             Some((a, b)) => words.extend([a, b]),
             None => words.push(w),
         }
     }
+    let cut = line[end..].find(is_break).map(|k| end + k);
+    (end, ragged, cut)
+}
+
+/// Formats a line with no tabs or line breaks, given its words, and returns
+/// the word list for reuse.
+fn format_piece<'a>(
+    engine: &Normalizer,
+    line: &'a str,
+    mut words: Vec<Word<'a>>,
+    end: usize,
+    ragged: bool,
+    out: &mut String,
+) -> Vec<Word<'a>> {
+    let t = engine.tables;
+    let begin = out.len();
+    if words.is_empty() {
+        out.push_str(line);
+        return words;
+    }
+    let tail = &line[end..];
     if engine.is_on(Setting::Letters) {
         join_meridiem(&mut words, t);
         join_zone(&mut words, t);
@@ -1111,7 +1234,7 @@ pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
         cuts(&mut words);
     }
     let counting = |core: &str| {
-        let role = t.role_of[t.lexicon.lookup(core.as_bytes()).class as usize] & 0x0F;
+        let role = t.role_of[lookup(t, core).class as usize] & 0x0F;
         COUNTING_ROLES >> role & 1 == 1
     };
     for (from, to) in guarded(&words, counting) {
@@ -1119,6 +1242,14 @@ pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
             w.flags |= W_KEEP;
         }
     }
+    if words.len() > MAX_TOKENS {
+        elide_and(&mut words, engine, line, MAX_TOKENS);
+    }
+    let piece = Piece {
+        text: line,
+        plain: !ragged,
+        seen: words.iter().fold(0, |a, w| a | w.flags),
+    };
     let mut scratch = Scratch {
         windows: WindowBuf::new(),
         buf: [0u8; LINE_OUT],
@@ -1133,16 +1264,25 @@ pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
         if !last {
             continue;
         }
-        if start > 0 {
-            out.push(' ');
-        }
+        out.push_str(if start > 0 {
+            sep(words[start].gap)
+        } else {
+            words[0].gap
+        });
         out.push_str(words[start].lead);
         let body = out.len();
         let segment = &words[start..=i];
         if words[i].keep() || (start == i && counting_list(&words, i)) {
             push_raw(out, segment);
         } else {
-            format_segment(engine, segment, words[start].dated(), out, &mut scratch);
+            format_segment(
+                engine,
+                segment,
+                piece,
+                words[start].dated(),
+                out,
+                &mut scratch,
+            );
             if bare_hundreds(segment, words.get(i + 1)) {
                 ungroup_last(out, body);
             }
@@ -1156,6 +1296,283 @@ pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
     if f & F_LETTERS != 0 && engine.is_on(Setting::Letters) {
         join_letters(out, begin);
     }
+    out.push_str(tail);
+    words
+}
+
+/// The whitespace to print before a word; a word a rewrite made gets one space.
+fn sep(gap: &str) -> &str {
+    if gap.is_empty() { " " } else { gap }
+}
+
+fn role(t: &Tables, w: &Word) -> u8 {
+    t.role_of[w.info.class as usize] & 0x0F
+}
+
+/// A word a cardinal group can start with: a digit, teen or tens word.
+fn starts_group(t: &Tables, w: &Word) -> bool {
+    matches!(role(t, w), ROLE_DIGIT | ROLE_TEEN | ROLE_TENS | ROLE_OH)
+}
+
+/// `line` from the start of `a` to the end of `b`, when both lie in it.
+fn joined<'a>(line: &'a str, a: &str, b: &str) -> Option<&'a str> {
+    let base = line.as_ptr().addr();
+    let from = a.as_ptr().addr().checked_sub(base)?;
+    let to = (b.as_ptr().addr() + b.len()).checked_sub(base)?;
+    line.get(from..to)
+}
+
+/// In a number run longer than `min_len` words, drops the "and" of "hundred
+/// and five" or "thousand and five", so the run splits at its scales. The
+/// "and" stays in the spoken text. A range ("one hundred and two hundred")
+/// keeps it.
+fn elide_and<'a>(words: &mut Vec<Word<'a>>, engine: &Normalizer, line: &'a str, min_len: usize) {
+    let t = engine.tables;
+    let linked = |a: &Word, b: &Word| {
+        open(a, b) && a.numeric() && b.numeric() && !a.cut() && !a.keep() && !b.keep()
+    };
+    let mut i = 0;
+    while i < words.len() {
+        let mut j = i + 1;
+        while j < words.len() && linked(&words[j - 1], &words[j]) {
+            j += 1;
+        }
+        let mut k = i + 1;
+        while j - i > min_len && k + 1 < j {
+            let prev = words[k - 1];
+            let said = (role(t, &words[k]) == ROLE_AND
+                && core::ptr::eq(prev.said, prev.core)
+                && final_and(engine, &words[k + 1..j], &prev))
+            .then(|| joined(line, prev.said, words[k].core))
+            .flatten();
+            match said {
+                Some(said) => {
+                    words[k - 1].said = said;
+                    words.remove(k);
+                    j -= 1;
+                }
+                None => k += 1,
+            }
+        }
+        i = j;
+    }
+}
+
+/// Whether an "and" after `prev` joins the group in `after` to it: `prev` is
+/// "hundred" or a scale, and the group is smaller than it.
+fn final_and(engine: &Normalizer, after: &[Word], prev: &Word) -> bool {
+    let t = engine.tables;
+    let p = if role(t, prev) == ROLE_HUNDRED {
+        2
+    } else {
+        scale_exp(prev.core)
+    };
+    let mut group = 0u64;
+    let mut len = 0;
+    for w in after {
+        match role(t, w) {
+            ROLE_DIGIT | ROLE_TEEN | ROLE_TENS | ROLE_OH => {
+                group += u64::from(engine.value(w.info.canonical));
+            }
+            ROLE_HUNDRED => group = group.max(1) * 100,
+            _ => break,
+        }
+        len += 1;
+    }
+    let next_scale = after.get(len).map_or(0, |w| scale_exp(w.core));
+    p > 0 && len > 0 && group < 10u64.pow(p) && (p == 2 || next_scale < p)
+}
+
+/// The value of the number `words` start with, folded the way the engine
+/// folds it. `None` when the words are not one number ("five six").
+fn lead_value(engine: &Normalizer, words: &[Word]) -> Option<u128> {
+    let t = engine.tables;
+    let (mut total, mut cur, mut any) = (0u128, 0u128, false);
+    let add = |cur: u128, v: u128| {
+        let p = 10u128.pow(v.checked_ilog10().unwrap_or(0) + 1);
+        cur.is_multiple_of(p).then_some(cur + v)
+    };
+    for w in words {
+        let v = u128::from(engine.value(w.info.canonical));
+        let exp = scale_exp(w.core);
+        match role(t, w) {
+            ROLE_DIGIT | ROLE_TEEN | ROLE_TENS | ROLE_OH => cur = add(cur, v)?,
+            ROLE_HUNDRED => cur = cur.max(1) * 100,
+            ROLE_AND if any => continue,
+            ROLE_ORDINAL => {
+                match v {
+                    100 => cur = cur.max(1) * 100,
+                    1000.. => {
+                        total += cur.max(1) * v;
+                        cur = 0;
+                    }
+                    _ => cur = add(cur, v)?,
+                }
+                return Some(total + cur);
+            }
+            _ if exp > 0 => {
+                total += cur.max(1) * 10u128.pow(exp);
+                cur = 0;
+            }
+            _ => break,
+        }
+        any = true;
+    }
+    any.then_some(total + cur)
+}
+
+/// A scale word right after a number in rendered text: its exponent and the
+/// bytes it spans with its space.
+fn scale_after(rest: &str) -> Option<(u32, usize)> {
+    let word = rest.strip_prefix(' ')?;
+    let end = word
+        .find(|c: char| !c.is_ascii_alphabetic())
+        .unwrap_or(word.len());
+    let exp = scale_exp(&word[..end]);
+    (exp > 0).then_some((exp, 1 + end))
+}
+
+/// Writes the whole number into the last piece of a split run, whose text
+/// carries a unit, currency or suffix ("$342 and 16 cents"). The piece's first
+/// number must be the value its words say, or the run stays as words.
+fn splice(
+    engine: &Normalizer,
+    piece: &[Word],
+    text: &str,
+    higher: &mut Vec<(String, u32)>,
+) -> Option<String> {
+    let a = text.find(|c: char| c.is_ascii_digit())?;
+    let len = text[a..]
+        .find(|c: char| !(c.is_ascii_digit() || c == ','))
+        .unwrap_or(text.len() - a);
+    let mut b = a + len;
+    let mut digits: String = text[a..b].chars().filter(|&c| c != ',').collect();
+    let rest = &text[b..];
+    if rest.starts_with(':') {
+        return None;
+    }
+    match rest.strip_prefix('.') {
+        Some(frac) if frac.starts_with(|c: char| c.is_ascii_digit()) => {
+            let n = frac
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(frac.len());
+            if scale_after(&frac[n..]).is_some() {
+                return None;
+            }
+        }
+        _ => {
+            if let Some((exp, n)) = scale_after(rest) {
+                digits.push_str(&"0".repeat(exp as usize));
+                b += n;
+            }
+        }
+    }
+    let want = lead_value(engine, piece)?.to_string();
+    if digits.trim_start_matches('0') != want.trim_start_matches('0') {
+        return None;
+    }
+    higher.push((want, 0));
+    let whole = group_thousands(&stitch(higher)?);
+    Some(format!("{}{whole}{}", &text[..a], &text[b..]))
+}
+
+/// A window the tables could not read, whose one number run has several
+/// groups ("one million seven hundred eighty one thousand nineteen"): reads the
+/// run one group at a time and writes the window. False when that fails too.
+fn push_regrouped<'a>(
+    out: &mut String,
+    engine: &Normalizer,
+    span: &[Word<'a>],
+    piece: Piece<'a>,
+    buf: &mut [u8; LINE_OUT],
+) -> bool {
+    let t = engine.tables;
+    let Some(a) = span.iter().position(Word::numeric) else {
+        return false;
+    };
+    let b = a + span[a..].iter().take_while(|w| w.numeric()).count();
+    let group_after = |i: usize| {
+        span[i].has(W_SCALE)
+            && span[i + 1..b]
+                .iter()
+                .find(|w| role(t, w) != ROLE_AND)
+                .is_some_and(|w| starts_group(t, w))
+    };
+    if !(a..b - 1).any(group_after) || span[b..].iter().any(Word::numeric) {
+        return false;
+    }
+    let mut run = span[a..b].to_vec();
+    elide_and(&mut run, engine, piece.text, 0);
+    let group_next = |i: usize| run.get(i + 1).is_some_and(|w| starts_group(t, w));
+    let scale = |i: usize| scale_exp(run[i].core) != 0 && group_next(i);
+    let pieces = split_run(0, run.len(), &scale, &|_| false);
+    let Some(text) = pieces
+        .filter(|p| p.len() > 1)
+        .and_then(|p| render_run(engine, &run, &p, buf))
+        .filter(|text| !as_spoken(text, &run))
+    else {
+        return false;
+    };
+    push_raw(out, &span[..a]);
+    if a > 0 {
+        out.push_str(sep(run[0].gap));
+    }
+    push_aligned(out, &text, &run, piece.plain);
+    if b < span.len() {
+        out.push_str(sep(span[b].gap));
+        push_raw(out, &span[b..]);
+    }
+    true
+}
+
+/// Writes a window's rendering, keeping the whitespace written before each
+/// word it kept. Words it rewrote are joined by one space.
+fn push_aligned(out: &mut String, text: &str, span: &[Word], plain: bool) {
+    if plain || span.iter().skip(1).all(|w| sep(w.gap) == " ") {
+        out.push_str(text);
+        return;
+    }
+    let toks: Vec<&str> = text.split(' ').collect();
+    let (m, n) = (toks.len(), span.len());
+    let at = |i: usize, j: usize| i * (n + 1) + j;
+    let mut lcs = vec![0u16; (m + 1) * (n + 1)];
+    for i in (0..m).rev() {
+        for j in (0..n).rev() {
+            lcs[at(i, j)] = if toks[i] == span[j].core {
+                lcs[at(i + 1, j + 1)] + 1
+            } else {
+                lcs[at(i + 1, j)].max(lcs[at(i, j + 1)])
+            };
+        }
+    }
+    let mut matched = vec![None; m];
+    let (mut i, mut j) = (0, 0);
+    while i < m && j < n {
+        if toks[i] == span[j].core && lcs[at(i, j)] == lcs[at(i + 1, j + 1)] + 1 {
+            matched[i] = Some(j);
+            i += 1;
+            j += 1;
+        } else if lcs[at(i + 1, j)] >= lcs[at(i, j + 1)] {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    let (mut next, mut after_match) = (0, true);
+    for (k, tok) in toks.iter().enumerate() {
+        if k > 0 {
+            out.push_str(match matched[k] {
+                Some(j) => sep(span[j].gap),
+                None if after_match => span.get(next).map_or(" ", |w| sep(w.gap)),
+                None => " ",
+            });
+        }
+        out.push_str(tok);
+        after_match = matched[k].is_some();
+        if let Some(j) = matched[k] {
+            next = j + 1;
+        }
+    }
 }
 
 /// "twenty-five" -> "twenty" "five", printing "twenty-five" if kept as words.
@@ -1165,7 +1582,12 @@ fn hyphenated<'a>(w: &Word<'a>, t: &Tables) -> Option<(Word<'a>, Word<'a>)> {
     }
     let (a, b) = w.core.split_once('-')?;
     let (a, b) = (tag(t, w.lead, a, ""), tag(t, "", b, w.trail));
-    (a.value() && b.value()).then_some((Word { said: w.core, ..a }, Word { said: "", ..b }))
+    let a = Word {
+        said: w.core,
+        gap: w.gap,
+        ..a
+    };
+    (a.value() && b.value()).then_some((a, Word { said: "", ..b }))
 }
 
 /// "One, two, three, go.": lone number words in a row, each closed by
@@ -1181,13 +1603,21 @@ fn counting_list(words: &[Word], i: usize) -> bool {
 }
 
 fn scale_exp(word: &str) -> u32 {
-    match word {
-        "thousand" => 3,
-        "million" => 6,
-        "billion" => 9,
-        "trillion" => 12,
-        _ => 0,
+    const SCALES: [(&str, u32); 6] = [
+        ("thousand", 3),
+        ("million", 6),
+        ("billion", 9),
+        ("trillion", 12),
+        ("quadrillion", 15),
+        ("quintillion", 18),
+    ];
+    if !matches!(word.len(), 7 | 8 | 11) {
+        return 0;
     }
+    SCALES
+        .iter()
+        .find(|(s, _)| s.eq_ignore_ascii_case(word))
+        .map_or(0, |&(_, e)| e)
 }
 
 struct Scratch {
@@ -1199,7 +1629,7 @@ fn push_raw(out: &mut String, words: &[Word]) {
     let mut first = true;
     for w in words.iter().filter(|w| !w.said.is_empty()) {
         if !first {
-            out.push(' ');
+            out.push_str(sep(w.gap));
         }
         out.push_str(w.said);
         first = false;
@@ -1248,23 +1678,31 @@ fn render_run(
         return Some(all);
     }
     let mut pieces = Vec::with_capacity(run.len());
-    for (i, w) in run.iter().enumerate() {
+    let (last, higher) = run.split_last()?;
+    for w in higher {
         let digits = piece_digits(render(engine, words, w, buf)?)?;
-        let k = if i + 1 == run.len() {
-            0
-        } else {
-            scale_exp(words[w.end - 1].core)
-        };
-        pieces.push((digits, k));
+        pieces.push((digits, scale_exp(words[w.end - 1].core)));
     }
-    stitch(&pieces).map(|n| group_thousands(&n))
+    let text = render(engine, words, last, buf)?;
+    match piece_digits(text) {
+        Some(digits) => {
+            pieces.push((digits, 0));
+            stitch(&pieces).map(|n| group_thousands(&n))
+        }
+        None => splice(engine, &words[last.start..last.end], text, &mut pieces),
+    }
 }
 
 /// Whether the engine kept a rewritten span as its words, so it must print
 /// as said ("a hundred", not "one hundred").
 fn as_spoken(text: &str, span: &[Word]) -> bool {
-    span.iter().any(|w| !core::ptr::eq(w.said, w.core))
-        && text.split(' ').eq(span.iter().map(|w| w.core))
+    span.iter().any(|w| !core::ptr::eq(w.said, w.core)) && same_words(text, span)
+}
+
+/// Whether the engine wrote the span's words back unread.
+fn same_words(text: &str, span: &[Word]) -> bool {
+    let len = span.iter().map(|w| w.core.len() + 1).sum::<usize>();
+    text.len() + 1 == len && text.split(' ').eq(span.iter().map(|w| w.core))
 }
 
 fn group_thousands(digits: &str) -> String {
@@ -1279,21 +1717,32 @@ fn group_thousands(digits: &str) -> String {
 }
 
 fn words_first(t: &Tables, core: &str) -> bool {
-    let c = t.lexicon.lookup(core.as_bytes()).canonical as usize;
+    let c = lookup(t, core).canonical as usize;
     (t.words_first[(c >> 6) % WORDS_FIRST_WORDS] >> (c & 63)) & 1 == 1
 }
 
 fn digit_word(engine: &Normalizer, core: &str) -> bool {
     let t = engine.tables;
-    let info = t.lexicon.lookup(core.as_bytes());
+    let info = lookup(t, core);
     engine.is_on(Setting::SingleDigits)
         && engine.is_digit_word(info.canonical, t.role_of[info.class as usize] & 0x0F)
 }
 
+/// A line cut at its tabs and line breaks, with facts taken once.
+#[derive(Clone, Copy)]
+struct Piece<'a> {
+    text: &'a str,
+    /// Every gap between words is one space.
+    plain: bool,
+    /// The `W_*` bits found on any word.
+    seen: u16,
+}
+
 /// `dated` writes a lone ordinal as digits ("the 4th of July").
-fn format_segment(
+fn format_segment<'a>(
     engine: &Normalizer,
-    words: &[Word],
+    words: &[Word<'a>],
+    piece: Piece<'a>,
     dated: bool,
     out: &mut String,
     scratch: &mut Scratch,
@@ -1308,15 +1757,16 @@ fn format_segment(
         return;
     }
     let Scratch { windows, buf } = scratch;
+    let group_next = |i: usize| words.get(i + 1).is_some_and(|w| starts_group(t, w));
     windows_scaled_into(
         windows,
         words.len(),
         |i| words[i].numeric(),
-        |i| scale_exp(words[i].core) != 0,
+        |i| scale_exp(words[i].core) != 0 && group_next(i),
+        |i| piece.seen & W_BIG != 0 && words[i].has(W_BIG) && group_next(i),
         |i| words[i].digit(),
         |i| {
-            let class = |w: &Word| t.lexicon.lookup(w.core.as_bytes()).class;
-            let (a, b) = (class(&words[i - 1]), class(&words[i]));
+            let (a, b) = (words[i - 1].info.class, words[i].info.class);
             fold_left(&t.left_folds, a, b) != b
         },
     );
@@ -1328,18 +1778,28 @@ fn format_segment(
             j += 1;
         }
         if i > 0 {
-            out.push(' ');
+            out.push_str(sep(words[ws[i].start].gap));
         }
         let span = &words[ws[i].start..ws[j - 1].end];
         if j - i > 1 {
             match render_run(engine, words, &ws[i..j], buf) {
-                Some(text) if !as_spoken(&text, span) => out.push_str(&text),
+                Some(text) if !as_spoken(&text, span) => {
+                    push_aligned(out, &text, span, piece.plain);
+                }
                 _ => push_raw(out, span),
             }
         } else {
-            match render(engine, words, &ws[i], buf) {
-                Some(text) if !as_spoken(text, span) => out.push_str(text),
-                _ => push_raw(out, span),
+            let scaled =
+                piece.seen & W_SCALE != 0 && span.iter().rev().skip(1).any(|w| w.has(W_SCALE));
+            let read = match render(engine, words, &ws[i], buf) {
+                Some(text) if !as_spoken(text, span) && !(scaled && same_words(text, span)) => {
+                    push_aligned(out, text, span, piece.plain);
+                    true
+                }
+                _ => false,
+            };
+            if !read && !(scaled && push_regrouped(out, engine, span, piece, buf)) {
+                push_raw(out, span);
             }
         }
         i = j;
@@ -1358,6 +1818,9 @@ pub struct Window {
 /// have no shape.
 const MIN_DIGIT_PIECE: usize = 3;
 
+/// Splits a number run after every group scale, so each piece holds one
+/// scale ("105 billion"), the form the tables read. A digit string splits
+/// where its pieces fit a window.
 fn split_run(
     start: usize,
     end: usize,
@@ -1367,16 +1830,25 @@ fn split_run(
     let digits = (start..end).all(digit);
     let mut pieces = Vec::new();
     let mut pos = start;
-    while end - pos > MAX_TOKENS {
+    loop {
         let rest = end - pos;
-        let limit = if digits && rest - MAX_TOKENS < MIN_DIGIT_PIECE {
-            rest - MIN_DIGIT_PIECE
+        let cut = if digits {
+            if rest <= MAX_TOKENS {
+                break;
+            }
+            let limit = if rest - MAX_TOKENS < MIN_DIGIT_PIECE {
+                rest - MIN_DIGIT_PIECE
+            } else {
+                MAX_TOKENS
+            };
+            (pos..pos + limit).rev().find(|&j| digit(j))?
         } else {
-            MAX_TOKENS
+            match (pos..end - 1).find(|&j| group_scale(j)) {
+                Some(j) if j - pos < MAX_TOKENS => j,
+                None if rest <= MAX_TOKENS => break,
+                _ => return None,
+            }
         };
-        let cut = (pos..pos + limit)
-            .rev()
-            .find(|&j| if digits { digit(j) } else { group_scale(j) })?;
         pieces.push(Window {
             start: pos,
             end: cut + 1,
@@ -1397,11 +1869,10 @@ fn split_run(
 fn piece_digits(text: &str) -> Option<String> {
     let (grouped, zeros) = match text.split_once(' ') {
         None => (text, 0),
-        Some((d, "thousand")) => (d, 3),
-        Some((d, "million")) => (d, 6),
-        Some((d, "billion")) => (d, 9),
-        Some((d, "trillion")) => (d, 12),
-        Some(_) => return None,
+        Some((d, scale)) => match scale_exp(scale) {
+            0 => return None,
+            e => (d, e as usize),
+        },
     };
     let digits: String = grouped.chars().filter(|&c| c != ',').collect();
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
@@ -1439,7 +1910,15 @@ pub fn windows_scaled(
     group_scale: impl Fn(usize) -> bool,
 ) -> Vec<Window> {
     let mut out = WindowBuf::new();
-    windows_scaled_into(&mut out, n, numeric, group_scale, |_| false, |_| false);
+    windows_scaled_into(
+        &mut out,
+        n,
+        numeric,
+        group_scale,
+        |_| false,
+        |_| false,
+        |_| false,
+    );
     out.as_slice().to_vec()
 }
 
@@ -1498,6 +1977,7 @@ fn windows_scaled_into(
     n: usize,
     numeric: impl Fn(usize) -> bool,
     group_scale: impl Fn(usize) -> bool,
+    must_cut: impl Fn(usize) -> bool,
     digit: impl Fn(usize) -> bool,
     folded: impl Fn(usize) -> bool,
 ) {
@@ -1510,9 +1990,11 @@ fn windows_scaled_into(
     };
     let mut start = 0;
     while start < n {
+        let split =
+            |from: usize, to: usize| to - from > MAX_TOKENS || (from..to - 1).any(&must_cut);
         if numeric(start) {
             let r = run_end(start);
-            if r - start > MAX_TOKENS {
+            if split(start, r) {
                 match split_run(start, r, &group_scale, &digit) {
                     Some(pieces) => pieces.into_iter().for_each(|p| out.push(p)),
                     None => out.push(Window {
@@ -1531,7 +2013,7 @@ fn windows_scaled_into(
         while j < end {
             if numeric(j) {
                 let r = run_end(j);
-                if r - j > MAX_TOKENS && j > start {
+                if split(j, r) && j > start {
                     end = j;
                     break;
                 }
@@ -1664,10 +2146,10 @@ mod tests {
     }
 
     #[test]
-    fn long_run_splits_after_group_scales() {
+    fn long_run_splits_after_every_group_scale() {
         let scales = [1, 6, 9];
         let ws = windows_scaled(14, |_| true, |i| scales.contains(&i));
-        assert_eq!(ws, vec![fmt(0, 7), join(7, 14)]);
+        assert_eq!(ws, vec![fmt(0, 2), join(2, 7), join(7, 10), join(10, 14)]);
     }
 
     #[test]

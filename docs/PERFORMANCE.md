@@ -10,27 +10,27 @@ Measured latency and allocation counts for `Normalizer::normalize`, how they wer
 
 ## Verdict
 
-**`Normalizer::normalize_into` meets its 1.00 µs p99 budget on utterances of up to 8 tokens: p99 826.7–886.8 ns over 10⁶ calls in each of 6 runs, about 1.1–1.2× headroom, with about one allocation per call. Whole dictation lines run longer: p99 935–1205 ns across 5 runs on a shared machine, so the budget holds for short utterances, not for every line.**
+**`Normalizer::normalize_into` meets its 1.00 µs p99 budget on utterances of up to 8 tokens: p99 905.4–908.8 ns over 10⁶ calls in each of 3 runs, about 1.1× headroom, with about one allocation per call. Whole dictation lines run longer: p99 1131–1162 ns across 3 runs on a shared machine, so the budget holds for short utterances, not for every line. A 168-word paragraph takes p50 12.9–13.5 µs in one call, about 77–80 ns per word, and p50 11.0–11.5 µs when normalized sentence by sentence.**
 
 ## How the numbers were taken
 
-- **Machine:** Intel Core i9-13900K, one P-core pinned with `taskset -c 2` or `-c 4`, Linux 7.0, rustc 1.97. The machine is shared (load average about 3 during these runs), so other work ran at the same time.
+- **Machine:** Intel Core i9-13900K, one P-core pinned with `taskset -c 2`, Linux 7.0, rustc 1.97. The machine is shared (load average 3.6–3.8 during these runs), so other work ran at the same time.
 - **Build:** `cargo bench` uses the `bench` profile, which inherits `release`: `opt-level = 3`, fat LTO, 16 codegen units.
 - **Timer:** `lfence; rdtsc` before and `rdtscp; lfence` after each call, 0.334 ns per tick, invariant TSC. The timer's own cost (median of 10⁴ empty pairs, 20 ticks = 6.7 ns) is subtracted. The resolution gate (one tick ≤ 10 ns) passes.
 - **Gate corpus:** 10⁶ generated utterances of up to 8 tokens (seed 1), mixing cardinals, ordinals, decimals, times and identifiers with non-number words, each joined into one line. An untimed pass over the whole corpus runs first, then each `normalize_into` call into one reused `String` is timed separately. The run passes with p99 ≤ 1000 ns and at most 1.05 allocations per call.
 - **Allocations:** the bench installs a counting global allocator and counts every allocation in the timed loop.
 - **Dictation lines:** the 359 spoken lines of `tests/data/dictation.tsv`, 1000 passes, one reused `String`. Report only.
+- **Paragraph:** `tests/data/paragraph.jsonl`, one 168-word line (63 s at 160 words per minute) with times, a date, money, percents, an ordinal, a room number and step labels. Timed as one call, and with `--sentences` as its 9 sentences normalized back to back. 10⁴ passes, one reused `String`. The file carries the expected output, and a unit test checks that it matches exactly. Report only.
 
 ```bash
 taskset -c 2 cargo bench --bench clm-bench                  # gate
 taskset -c 2 cargo bench --bench clm-bench -- --tiers       # plus the table engine's tiers
 taskset -c 2 cargo bench --bench clm-bench -- --corpus tests/data/dictation.tsv
 taskset -c 2 cargo bench --bench clm-bench -- --corpus my-corpora/   # every .jsonl/.tsv/.txt file
+taskset -c 2 cargo bench --bench clm-bench -- --corpus tests/data/paragraph.jsonl --passes 10000 --sentences
 ```
 
-The same runs are `cargo script bench`, `cargo script bench-tiers` and `cargo script bench-corpus` (`--env CORPUS=<file|folder>`, default `tests/data`). Corpus file formats are in [API.md](API.md#clm-bench).
-
-On hybrid CPUs, pin to a performance core that no other busy process shares.
+The same runs are `cargo script bench`, `cargo script bench-tiers`, `cargo script bench-corpus` and `cargo script bench-paragraph` (`--env CORPUS=<file|folder>`, default `tests/data`). Corpus file formats are in [API.md](API.md#clm-bench).
 
 ## Results
 
@@ -38,12 +38,9 @@ On hybrid CPUs, pin to a performance core that no other busy process shares.
 
 | Run | Core | p50      | p99      | p99.9     | max      | Allocations per call |
 | --- | ---- | -------- | -------- | --------- | -------- | -------------------- |
-| 1   | 4    | 456.7 ns | 832.0 ns | 1123.1 ns | 15749 ns | 1.01                 |
-| 2   | 4    | 461.4 ns | 845.4 ns | 1463.7 ns | 6608 ns  | 1.01                 |
-| 3   | 4    | 457.4 ns | 832.7 ns | 1105.1 ns | 16920 ns | 1.01                 |
-| 4   | 2    | 455.4 ns | 828.7 ns | 1157.9 ns | 23520 ns | 1.01                 |
-| 5   | 2    | 472.1 ns | 886.8 ns | 1488.4 ns | 32794 ns | 1.01                 |
-| 6   | 2    | 455.4 ns | 826.7 ns | 1095.8 ns | 10455 ns | 1.01                 |
+| 1   | 2    | 491.5 ns | 908.8 ns | 1670.0 ns | 21820 ns | 1.01                 |
+| 2   | 2    | 494.1 ns | 905.4 ns | 1586.5 ns | 10034 ns | 1.01                 |
+| 3   | 2    | 493.5 ns | 908.8 ns | 1641.3 ns | 13350 ns | 1.01                 |
 
 The one allocation is the line's word list.
 
@@ -64,18 +61,29 @@ The one allocation is the line's word list.
 
 | Run | Core | p50      | p99       | p99.9     | max      | Lines over 1 µs at p99 |
 | --- | ---- | -------- | --------- | --------- | -------- | ---------------------- |
-| 1   | 4    | 485.4 ns | 935.5 ns  | n/a       | n/a      | 7 of 359               |
-| 2   | 4    | 489.4 ns | 960.2 ns  | 1501.1 ns | 20652 ns | 8 of 359               |
-| 3   | 4    | 498.8 ns | 1082.4 ns | 1767.5 ns | 12912 ns | 129 of 359             |
-| 4   | 2    | 462.7 ns | 1204.6 ns | 2657.6 ns | 13936 ns | 227 of 359             |
-| 5   | 2    | 494.8 ns | 967.5 ns  | 1502.4 ns | 13259 ns | 15 of 359              |
+| 1   | 2    | 539.5 ns | 1141.2 ns | 1714.1 ns | 227234 ns | 18 of 359             |
+| 2   | 2    | 532.2 ns | 1130.5 ns | 1720.1 ns | 20171 ns  | 20 of 359             |
+| 3   | 2    | 544.9 ns | 1161.9 ns | 1746.1 ns | 26297 ns  | 26 of 359             |
 
-Runs 3 and 4 shared the pinned core with other work, so check the core is idle before comparing numbers. The slowest lines are long lines with several number spans or a money phrase.
+The slowest lines are long lines with several number spans or a money phrase.
 
 | Buffer                 | Allocations over 359 lines | Most in one line |
 | ---------------------- | -------------------------- | ---------------- |
-| Reused `String`        | 421                        | 5                |
-| New `String` each call | 876                        | 8                |
+| Reused `String`        | 422                        | 5                |
+| New `String` each call | 881                        | 8                |
+
+### Paragraph
+
+| Run | Core | Input            | p50     | p99     | p99.9   | max     |
+| --- | ---- | ---------------- | ------- | ------- | ------- | ------- |
+| 1   | 2    | One call         | 12.9 µs | 15.1 µs | 19.7 µs | 38.8 µs |
+| 1   | 2    | 9 sentences      | 11.5 µs | 13.3 µs | 16.6 µs | 27.2 µs |
+| 2   | 2    | One call         | 13.5 µs | 15.9 µs | 22.0 µs | 34.9 µs |
+| 2   | 2    | 9 sentences      | 11.3 µs | 13.0 µs | 15.4 µs | 21.7 µs |
+| 3   | 2    | One call         | 13.2 µs | 15.9 µs | 25.1 µs | 33.5 µs |
+| 3   | 2    | 9 sentences      | 11.0 µs | 13.1 µs | 17.9 µs | 28.3 µs |
+
+Load average was 3.6–3.8. The call allocates 3 times with a reused `String` and 9 times with a new one.
 
 ## Cost model
 
@@ -96,7 +104,7 @@ Every table is `static`, read-only, and starts on a 64-byte boundary, so each bu
 
 - **The gate uses a generated corpus:** no production logs ship with the repository, so the gate replays generated utterances of up to 8 tokens. `--corpus` scores and times your own logs, but only reports.
 - **Long lines can exceed 1 µs:** cost grows with line length and with the number of number spans. The budget covers short utterances.
-- **Headroom is thin:** p99 sits at 83–89% of the budget, so a busy core can push a run over it.
-- **Max is not bounded:** the slowest single call ranged from 6.6 to 32.8 µs across runs. This is a time-shared OS, and only p99 and allocations are gated.
+- **Headroom:** p99 is 91% of the budget.
+- **Max is not bounded:** the slowest single call ranged from 10.0 to 21.8 µs across gate runs. This is a time-shared OS, and only p99 and allocations are gated.
 - **AArch64 has never run:** the NEON lookup and the `cntvct_el0` timer compile and pass clippy, but no ARM hardware has run them. On cores before Armv8.6 (Apple M1: 24 MHz, about 42 ns per tick), the counter fails the resolution gate, and the bench needs the PMU cycle counter with the core frequency locked.
-- **Cache-cold calls are not measured:** the numbers come after a full warm-up pass. Calls made after other work has evicted the tables from cache will cost more.
+- **Cache-cold calls are not measured:** the numbers come after a full warm-up pass.

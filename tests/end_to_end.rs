@@ -59,7 +59,7 @@ fn normalize_never_cuts_a_number() {
         ),
         ("one two three four five six seven eight nine", "123456789"),
         ("", ""),
-        ("  spaced   out  ", "spaced out"),
+        ("  spaced   out  ", "  spaced   out  "),
     ];
     for (input, want) in cases {
         let mut got = String::new();
@@ -122,6 +122,9 @@ fn normalize_keeps_ambiguous_runs_as_words() {
         ("twenty five um then", "25 um then"),
         ("twenty fives", "twenty fives"),
         ("twenty five's", "twenty five's"),
+        ("twenty billions", "twenty billions"),
+        ("twenty trillions", "twenty trillions"),
+        ("twenty quadrillion's", "twenty quadrillion's"),
         ("eighteen hundreds", "1800s"),
         ("hundreds of people", "hundreds of people"),
         ("the timer is thirty seconds", "the timer is 30 seconds"),
@@ -829,4 +832,214 @@ fn each_setting_switches_off_only_its_own_rewrite() {
         assert_eq!(line(&all, input), on, "{setting:?} on");
         assert_eq!(line(&all.without(setting), input), off, "{setting:?} off");
     }
+}
+
+#[test]
+fn whitespace_prints_as_written() {
+    check_lines(
+        &engine(),
+        &[
+            ("", ""),
+            ("   ", "   "),
+            ("  hello   world \u{a0}", "  hello   world \u{a0}"),
+            ("  twenty five  ", "  25  "),
+            (
+                "it costs twenty dollars\nsee you at ten thirty",
+                "it costs $20\nsee you at 10:30",
+            ),
+            ("twenty one\r\ntwenty two\r\n", "21\r\n22\r\n"),
+            ("it  costs  twenty five  dollars", "it  costs  $25"),
+            ("at  ten thirty  pm", "at  10:30  pm"),
+            ("twenty\u{a0}five", "25"),
+            ("\n\nforty two\n\n", "\n\n42\n\n"),
+        ],
+    );
+}
+
+#[test]
+fn line_breaks_and_tabs_end_a_number() {
+    check_lines(
+        &engine(),
+        &[
+            ("twenty\nfive", "20\nfive"),
+            ("twenty\tfive", "20\tfive"),
+            ("room\nfour oh two", "room\n402"),
+            ("twenty\u{85}five", "20\u{85}five"),
+            ("twenty\u{2028}five", "20\u{2028}five"),
+            ("twenty\u{2029}\u{2029}five", "20\u{2029}\u{2029}five"),
+            ("twenty five\u{2028}", "25\u{2028}"),
+            ("it\u{2019}s twenty \u{a0}five", "it\u{2019}s 25"),
+        ],
+    );
+}
+
+#[test]
+fn numbers_longer_than_a_window_read_whole() {
+    check_lines(
+        &engine(),
+        &[
+            (
+                "nine hundred ninety nine trillion nine hundred ninety nine billion nine hundred ninety nine million nine hundred ninety nine thousand nine hundred ninety nine",
+                "999,999,999,999,999",
+            ),
+            (
+                "twenty five thousand three hundred and forty two dollars and sixteen cents",
+                "$25,342 and 16 cents",
+            ),
+            (
+                "one hundred twenty three thousand four hundred fifty six point seven eight",
+                "123,456.78",
+            ),
+            (
+                "one hundred twenty three million four hundred fifty six thousand dollars",
+                "$123,456,000",
+            ),
+            (
+                "two hundred twenty five thousand three hundred and forty second",
+                "225,342nd",
+            ),
+            (
+                "it weighs two hundred thirty four thousand five hundred sixty seven kilograms",
+                "it weighs 234,567 kilograms",
+            ),
+            (
+                "one hundred and twenty one thousand three hundred and forty five people",
+                "121,345 people",
+            ),
+            ("five trillion dollars", "$5 trillion"),
+            ("two trillion five hundred billion", "2,500,000,000,000"),
+            ("one quadrillion", "1 quadrillion"),
+        ],
+    );
+}
+
+const ONES: [&str; 20] = [
+    "",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+];
+const TENS: [&str; 10] = [
+    "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+];
+const SCALES: [&str; 6] = [
+    "",
+    "thousand",
+    "million",
+    "billion",
+    "trillion",
+    "quadrillion",
+];
+
+/// `n` in words; `and` says "hundred and five" and "thousand and five".
+fn spell(n: u64, and: bool) -> Vec<&'static str> {
+    let mut groups = Vec::new();
+    let mut rest = n;
+    while rest > 0 {
+        groups.push(rest % 1000);
+        rest /= 1000;
+    }
+    let mut words = Vec::new();
+    for (k, &g) in groups.iter().enumerate().rev() {
+        if g == 0 {
+            continue;
+        }
+        if and && k == 0 && g < 100 && !words.is_empty() {
+            words.push("and");
+        }
+        if g >= 100 {
+            words.extend([ONES[(g / 100) as usize], "hundred"]);
+            if and && g % 100 != 0 {
+                words.push("and");
+            }
+        }
+        match g % 100 {
+            0 => {}
+            r if r < 20 => words.push(ONES[r as usize]),
+            r => {
+                words.push(TENS[(r / 10) as usize]);
+                if r % 10 != 0 {
+                    words.push(ONES[(r % 10) as usize]);
+                }
+            }
+        }
+        if k > 0 {
+            words.push(SCALES[k]);
+        }
+    }
+    words
+}
+
+fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (k, c) in digits.chars().enumerate() {
+        if k > 0 && (digits.len() - k).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+#[test]
+fn spelled_numbers_of_any_length_read_back_exactly() {
+    let engine = engine();
+    let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+    let mut failures = Vec::new();
+    for case in 0..20_000 {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        let digits = 5 + (state % 14) as u32;
+        let n = 10u64.pow(digits - 1) + (state >> 8) % (9 * 10u64.pow(digits - 1));
+        let words = spell(n, case % 2 == 1).join(" ");
+        let (input, want) = match case % 4 {
+            0 => (words.clone(), grouped(n)),
+            1 => (format!("{words} dollars"), format!("${}", grouped(n))),
+            2 => (
+                format!("{words} people came"),
+                format!("{} people came", grouped(n)),
+            ),
+            _ => (format!("{words} point five"), format!("{}.5", grouped(n))),
+        };
+        let got = engine.normalize(&input);
+        if got != want && failures.len() < 10 {
+            failures.push(format!("{input:?}\n   got  {got:?}\n   want {want:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+#[test]
+fn letter_and_dot_joins_ignore_wide_gaps() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("four  k", "4k"),
+            ("four\u{a0}k", "4k"),
+            ("gate  b twelve", "gate  b12"),
+            (
+                "one nine two  dot one six eight dot one  dot one",
+                "192.168.1.1",
+            ),
+            ("  four k  ", "  4k  "),
+        ],
+    );
 }

@@ -149,8 +149,16 @@ fn normalize_survives_random_lines() {
         let got = catch_unwind(AssertUnwindSafe(|| e.normalize(&text)))
             .unwrap_or_else(|_| panic!("case {i}: normalize panicked on {text:?}"));
         if text.trim().is_empty() {
-            assert_eq!(got, "", "case {i}: {text:?}");
+            assert_eq!(got, text, "case {i}");
         }
+        let breaks = |s: &str| s.matches(['\t', '\n', '\r']).collect::<String>();
+        assert_eq!(breaks(&got), breaks(&text), "case {i}: {text:?}");
+        let lead = |s: &str| s.len() - s.trim_start().len();
+        assert_eq!(lead(&got), lead(&text), "case {i}: {text:?}");
+        assert!(
+            got.ends_with(&text[text.trim_end().len()..]),
+            "case {i}: {text:?}"
+        );
     }
 }
 

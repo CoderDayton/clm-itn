@@ -12,6 +12,7 @@ fn corpus(path: &str) -> CorpusOpts {
         tag: None,
         all_failures: false,
         off: Vec::new(),
+        sentences: false,
     }
 }
 
@@ -57,6 +58,7 @@ fn parses_corpus_options() {
         tag: Some("time!".into()),
         all_failures: true,
         off: vec![Setting::SingleDigits, Setting::Percent],
+        sentences: true,
         ..corpus("d.tsv")
     };
     let args = [
@@ -68,6 +70,7 @@ fn parses_corpus_options() {
         "--all-failures",
         "--tag",
         "time!",
+        "--sentences",
         "--no-percent",
     ];
     assert_eq!(parse(&args), Ok(Mode::Corpus(want)));
@@ -106,6 +109,7 @@ fn rejects_mixed_modes_and_stray_mode_flags() {
     assert!(parse(&["--tag", "time"]).is_err());
     assert!(parse(&["--all-failures"]).is_err());
     assert!(parse(&["--no-percent"]).is_err());
+    assert!(parse(&["--sentences"]).is_err());
     assert!(parse(&["--isolated"]).is_err());
     assert!(parse(&["--pairs", "v.txt", "--tag", "x"]).is_err());
 }

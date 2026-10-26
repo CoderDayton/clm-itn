@@ -105,3 +105,13 @@ fn scores_the_dictation_gold_set() {
     assert_eq!(t.all.total, cases.len());
     assert!(t.all.exact > t.all.total / 2, "{} exact", t.all.exact);
 }
+
+#[test]
+fn the_sixty_second_paragraph_is_exact() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/paragraph.jsonl");
+    let files = crate::lines::load(path).unwrap();
+    let cases: Vec<&Case> = files[0].cases.iter().collect();
+    assert_eq!(cases.len(), 1);
+    let t = score(&clm_itn::Normalizer::english(), &cases, true);
+    assert_eq!(t.all.exact, 1, "{:?}", t.failures);
+}

@@ -123,6 +123,16 @@ fn load_reads_one_file_or_every_corpus_file_in_a_folder() {
 }
 
 #[test]
+fn sentences_cut_after_end_marks_followed_by_a_space() {
+    assert_eq!(
+        sentences("Can you? Yes.  It costs $5.50 now! Wait... ok"),
+        ["Can you?", "Yes.", "It costs $5.50 now!", "Wait...", "ok"]
+    );
+    assert_eq!(sentences(" one line "), ["one line"]);
+    assert!(sentences("  ").is_empty());
+}
+
+#[test]
 fn per_line_percentile_reads_each_line_across_passes() {
     let samples = [10, 1, 20, 2, 30, 3, 40, 4];
     assert_eq!(per_line(&samples, 2, 1.0), [40, 4]);
