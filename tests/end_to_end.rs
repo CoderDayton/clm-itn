@@ -264,6 +264,8 @@ fn single_digits_keeps_one_to_nine_as_words_when_not_a_count() {
         "Oh, one more thing.",
         "check them one by one",
         "it's one thing to say it",
+        "you get to look at one every time",
+        "if it's one piece, keep it",
         "one at a time please",
         "one way or another",
         "it's a one way street",
@@ -563,6 +565,20 @@ fn its_before_a_clock_reading_is_a_time() {
             ("it's twenty five dollars", "it's $25"),
             ("it's twenty five", "it's 25"),
             ("it's ten to four", "it's ten to four"),
+        ],
+    );
+}
+
+#[test]
+fn a_digit_before_punctuation_and_and_keeps_its_value() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("4, and", "4, and"),
+            ("4; and", "4; and"),
+            ("4. And", "4. And"),
+            ("picks 1 and 2, and then", "picks 1 and 2, and then"),
+            ("sonnet 4, and probably", "sonnet 4, and probably"),
         ],
     );
 }

@@ -435,7 +435,9 @@ const SMALL: [&str; 9] = [
     "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
 ];
 const ONE_AFTER_WORD: [&str; 5] = ["no", "which", "this", "that", "the"];
-const ONE_BEFORE_WORD: [&str; 7] = ["of", "more", "another", "at", "way", "thing", "sec"];
+const ONE_BEFORE_WORD: [&str; 9] = [
+    "of", "more", "another", "at", "way", "thing", "sec", "every", "piece",
+];
 const GROUP: [&str; 3] = ["us", "them", "you"];
 const SIX_OF_ONE: &[&str] = &["six", "of", "one"];
 const CLOUD_NINE: &[&str] = &["cloud", "nine"];
@@ -715,7 +717,10 @@ fn unit(w: &Word) -> bool {
 
 /// A word that can be the minutes of "5 thirty": not a digit or a scale.
 fn minutes(w: &Word) -> bool {
-    w.value() && (!w.digit() || is(w, "oh")) && !SCALE_WORDS.iter().any(|s| is(w, s))
+    w.value()
+        && (!w.digit() || is(w, "oh"))
+        && !is(w, "and")
+        && !SCALE_WORDS.iter().any(|s| is(w, s))
 }
 
 /// "we march five miles", "it may first be noticed": after a subject or a
@@ -793,8 +798,13 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
                 });
                 i += 2;
             }
-            Some(n) if w.kind == K_CLOCK_DIGITS && w.trail.is_empty() && minutes(&n) => {
-                let hour = HOUR_WORDS[clock_digits(w.core).unwrap_or(1) - 1];
+            Some(n)
+                if w.kind == K_CLOCK_DIGITS
+                    && let Some(h) = clock_digits(w.core)
+                    && w.trail.is_empty()
+                    && minutes(&n) =>
+            {
+                let hour = HOUR_WORDS[h - 1];
                 out.push(Word {
                     said: w.core,
                     ..tag(t, w.lead, hour, w.trail)
