@@ -52,7 +52,7 @@ fn format_line_never_cuts_a_number() {
     let cases = [
         (
             "the twenty first of june costs two thousand five dollars",
-            "the 21st of june costs $2005",
+            "the 21st of June costs $2,005",
         ),
         (
             "meet me at five thirty pm in room four oh two",
@@ -60,16 +60,13 @@ fn format_line_never_cuts_a_number() {
         ),
         (
             "one hundred forty seven thousand four hundred fifty one",
-            "147451",
+            "147,451",
         ),
         (
             "it cost one hundred forty seven thousand four hundred fifty one.",
-            "it cost 147451.",
+            "it cost 147,451.",
         ),
-        (
-            "one two three four five six seven eight nine",
-            "one two three four five six seven eight nine",
-        ),
+        ("one two three four five six seven eight nine", "123456789"),
         ("", ""),
         ("  spaced   out  ", "spaced out"),
     ];
@@ -134,7 +131,7 @@ fn format_line_keeps_ambiguous_runs_as_words() {
         ("twenty five um then", "25 um then"),
         ("twenty fives", "twenty fives"),
         ("twenty five's", "twenty five's"),
-        ("eighteen hundreds", "eighteen hundreds"),
+        ("eighteen hundreds", "1800s"),
         ("hundreds of people", "hundreds of people"),
         ("the timer is thirty seconds", "the timer is 30 seconds"),
         ("twelve and a half", "twelve and a half"),
@@ -142,7 +139,6 @@ fn format_line_keeps_ambiguous_runs_as_words() {
         ("five and a quarter miles", "five and a quarter miles"),
         ("in eighteen ninety two and then", "in 1892 and then"),
         ("zero point two seconds faster", "0.2 seconds faster"),
-        ("it's 5 thirty", "it's 5 thirty"),
         ("twenty 5", "twenty 5"),
         ("room 5 is open", "room 5 is open"),
         ("at five thirty pm", "at 5:30 pm"),
@@ -151,7 +147,7 @@ fn format_line_keeps_ambiguous_runs_as_words() {
         ("we live on the ninth floor", "we live on the ninth floor"),
         (
             "we celebrate the fourth of july",
-            "we celebrate the fourth of july",
+            "we celebrate the 4th of July",
         ),
         ("see you on the third", "see you on the third"),
         ("he's in tenth grade", "he's in 10th grade"),
@@ -186,20 +182,23 @@ fn format_line_keeps_ambiguous_runs_as_words() {
         ("minus five degrees", "minus 5 degrees"),
         ("two kilo liters", "2 kilo liters"),
         ("five square meters", "5 square meters"),
-        ("the budget is ten thousand dollars", "the budget is $10000"),
+        (
+            "the budget is ten thousand dollars",
+            "the budget is $10,000",
+        ),
         (
             "we raised two hundred fifty thousand dollars",
-            "we raised $250000",
+            "we raised $250,000",
         ),
         (
             "the video has three hundred thousand views",
-            "the video has 300000 views",
+            "the video has 300,000 views",
         ),
         (
             "i walked one thousand two hundred thirty four steps",
-            "i walked 1234 steps",
+            "i walked 1,234 steps",
         ),
-        ("it's four thousand miles away", "it's 4000 miles away"),
+        ("it's four thousand miles away", "it's 4,000 miles away"),
         ("born in nineteen ninety", "born in 1990"),
         ("in two thousand five", "in 2005"),
         ("room four oh two one", "room 4021"),
@@ -384,6 +383,287 @@ fn an_ordinal_after_code_stays_a_word() {
         format_line(&engine, input, &mut got);
         assert_eq!(got, want, "{input:?}");
     }
+}
+
+fn check_lines(engine: &Normalizer, cases: &[(&str, &str)]) {
+    let failures: Vec<String> = cases
+        .iter()
+        .filter_map(|&(input, want)| {
+            let got = line(engine, input);
+            (got != want).then(|| format!("{input:?}\n   got  {got:?}\n   want {want:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+#[test]
+fn digit_sequences_keep_every_digit() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("my pin is zero zero one two", "my pin is 0012"),
+            ("flight four seventeen is delayed", "flight 417 is delayed"),
+            ("the port is eight zero eight zero", "the port is 8080"),
+            ("they live in nine oh two one oh", "they live in 90210"),
+            (
+                "my number is eight oh oh five five five oh one nine nine",
+                "my number is 8005550199",
+            ),
+            (
+                "call one eight hundred two five five four six eight eight",
+                "call 18002554688",
+            ),
+            ("agent double oh seven reporting", "agent 007 reporting"),
+            (
+                "the order number is triple five two one",
+                "the order number is 55521",
+            ),
+            (
+                "the ip address is one ninety two dot one sixty eight dot one dot one",
+                "the ip address is 192.168.1.1",
+            ),
+            (
+                "in an emergency dial nine one one",
+                "in an emergency dial 911",
+            ),
+            ("a double espresso", "a double espresso"),
+            ("click the dot", "click the dot"),
+        ],
+    );
+}
+
+#[test]
+fn numbers_the_tables_used_to_miss() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            (
+                "the tank holds a hundred and twenty liters",
+                "the tank holds 120 liters",
+            ),
+            ("a hundred people came", "a hundred people came"),
+            (
+                "pi is roughly three point one four one five nine",
+                "pi is roughly 3.14159",
+            ),
+            (
+                "we migrated to python three point twelve",
+                "we migrated to python 3.12",
+            ),
+            (
+                "the crate requires rust one point eighty two",
+                "the crate requires rust 1.82",
+            ),
+            (
+                "the recession of twenty oh eight hurt everyone",
+                "the recession of 2008 hurt everyone",
+            ),
+            (
+                "the system launched on january first two thousand",
+                "the system launched on January 1st, 2000",
+            ),
+            (
+                "she was born on february twenty ninth twenty twenty",
+                "she was born on February 29th, 2020",
+            ),
+            ("i am one hundred percent sure", "i am 100% sure"),
+            (
+                "he is six feet two inches tall",
+                "he is 6 feet 2 inches tall",
+            ),
+            ("the vat is twelve per cent", "the vat is 12%"),
+            (
+                "we watch fireworks on the fourth of july",
+                "we watch fireworks on the 4th of July",
+            ),
+            (
+                "the wall fell on the ninth of november nineteen eighty nine",
+                "the wall fell on the 9th of November 1989",
+            ),
+            (
+                "the office is at fourteen fifty five market street",
+                "the office is at 1455 market street",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn may_and_march_as_verbs_stay_lowercase_words() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("we march five miles a day", "we march 5 miles a day"),
+            ("they march ten miles", "they march 10 miles"),
+            ("it may first be noticed", "it may first be noticed"),
+            ("you may one day understand", "you may one day understand"),
+            ("It may first seem odd.", "It may first seem odd."),
+            ("the race is may fifth", "the race is May 5th"),
+            ("on march third", "on March 3rd"),
+        ],
+    );
+}
+
+#[test]
+fn hyphenated_number_words_read_as_numbers() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("Is it twenty-five or thirty?", "Is it 25 or 30?"),
+            ("I paid twenty-five dollars.", "I paid $25."),
+            (
+                "The flight is at six forty-five a.m.",
+                "The flight is at 6:45 a.m.",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn spoken_money_forms() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("give me a hundred dollars", "give me $100"),
+            ("it costs a thousand dollars", "it costs $1,000"),
+            ("coffee is a dollar fifty", "coffee is $1.50"),
+            (
+                "the total is ten dollars and five cents",
+                "the total is $10.05",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn decades_digits_and_fillers() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("meet at 5 thirty pm", "meet at 5:30 pm"),
+            ("houses from the eighteen hundreds", "houses from the 1800s"),
+            ("in the eighteen hundreds", "in the 1800s"),
+            (
+                "it's like twenty uh twenty five people",
+                "it's like twenty uh 25 people",
+            ),
+            ("One, two, three, go.", "One, two, three, go."),
+        ],
+    );
+}
+
+#[test]
+fn its_before_a_clock_reading_is_a_time() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("it's five thirty", "it's 5:30"),
+            ("it's 5 thirty", "it's 5:30"),
+            ("it's eleven forty five", "it's 11:45"),
+            ("it's twenty five dollars", "it's $25"),
+            ("it's twenty five", "it's 25"),
+            ("it's ten to four", "it's ten to four"),
+        ],
+    );
+}
+
+#[test]
+fn hundred_and_years_take_no_comma() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("in nineteen hundred and five", "in 1905"),
+            (
+                "built in eighteen hundred and twelve, then",
+                "built in 1812, then",
+            ),
+            ("fifteen hundred and fifty people", "1,550 people"),
+        ],
+    );
+}
+
+#[test]
+fn a_rewrite_kept_as_words_prints_as_spoken() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("a hundred and so on", "a hundred and so on"),
+            (
+                "there were a hundred and then more",
+                "there were a hundred and then more",
+            ),
+            ("say double oh", "say double oh"),
+        ],
+    );
+}
+
+#[test]
+fn idioms_and_fractions_stay_words() {
+    let engine = Normalizer::english();
+    for input in [
+        "they finished at the eleventh hour",
+        "it was a one off event",
+        "she has twenty twenty vision",
+        "drill a five eighths inch hole",
+        "use a seven sixteenths wrench",
+        "we hiked two and three quarters miles",
+    ] {
+        assert_eq!(line(&engine, input), input, "{input:?}");
+    }
+}
+
+#[test]
+fn counts_of_a_thousand_or_more_get_commas() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            (
+                "the file has one thousand lines",
+                "the file has 1,000 lines",
+            ),
+            ("fifteen hundred people showed up", "1,500 people showed up"),
+            ("it dates to nineteen hundred", "it dates to 1900"),
+            (
+                "built in nineteen hundred, then sold",
+                "built in 1900, then sold",
+            ),
+            ("report at seventeen hundred hours", "report at 1700 hours"),
+            ("it was two thousand five hundred", "it was 2,500"),
+            ("two thousand five hundred people", "2,500 people"),
+            (
+                "the total was nine million eight hundred seventy six thousand five hundred forty three",
+                "the total was 9,876,543",
+            ),
+            (
+                "the house sold for four hundred fifty thousand dollars",
+                "the house sold for $450,000",
+            ),
+            ("the rent is twelve hundred dollars", "the rent is $1,200"),
+            ("lunch was twenty thousand yen", "lunch was 20,000 yen"),
+            ("it costs two thousand five dollars", "it costs $2,005"),
+            ("in two thousand five", "in 2005"),
+            ("born in nineteen ninety", "born in 1990"),
+            ("room four oh two one", "room 4021"),
+            ("at eleven forty five pm", "at 11:45 pm"),
+            ("three point one four", "3.14"),
+            ("twelve million dollars", "$12 million"),
+        ],
+    );
+}
+
+#[test]
+fn a_letter_next_to_a_number_joins_it() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("i bought a four k monitor", "i bought a 4k monitor"),
+            ("she lives in apartment four b", "she lives in apartment 4b"),
+            ("take i sixty four east", "take i64 east"),
+            ("from gate b twelve", "from gate b12"),
+            ("five a day", "5 a day"),
+            ("call a b c now", "call a b c now"),
+        ],
+    );
 }
 
 #[test]

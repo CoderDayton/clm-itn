@@ -10,12 +10,12 @@ Inverse text normalization for English: spoken numbers in, written numbers out.
 
 </div>
 
-Three lookups over static tables, no model, no dependencies. `Normalizer::format` runs at p99 258 ns per call of up to 8 tokens ([performance](docs/PERFORMANCE.md)).
+Three lookups over static tables, no model, no dependencies. `Normalizer::format` runs at p99 264 ns per call of up to 8 tokens ([performance](docs/PERFORMANCE.md)).
 
 ## Features
 
 - Cardinals, ordinals, decimals, times, dates, money, percents, measures, and identifiers
-- `Normalizer::format`: up to 8 tokens, no allocation, p99 258 ns
+- `Normalizer::format`: up to 8 tokens, no allocation, p99 264 ns
 - `normalize`: any line length, keeps punctuation, never cuts a number
 - Settings: every rewrite beyond digits (`%`, `$`, dates, single digits, and more) is on by default and can be switched off
 - Deterministic static tables; `Normalizer` is `Copy`, `Send`, `Sync`

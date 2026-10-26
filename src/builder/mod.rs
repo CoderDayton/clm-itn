@@ -362,6 +362,7 @@ pub fn build(learned: &Learned) -> Result<Built, BuildError> {
     t.connector_roles = 1 << english::ROLE_AND;
     t.bind_roles = english::BIND_ROLES;
     t.words_first_roles = 1 << english::ROLE_ORDINAL;
+    t.lead_skip_roles = english::LEAD_SKIP_ROLES;
     for w in english::PLURAL {
         let c = t.lexicon.lookup(w.as_bytes()).canonical as usize;
         t.plural[c / 64] |= 1 << (c % 64);
@@ -658,8 +659,10 @@ fn hand_rule(left: ClassId, right: ClassId) -> Option<(u8, Side)> {
         Some((pack_entry(DOMAIN_TIME, 15), Side::Right))
     } else if left == TIME_LEFT {
         Some((pack_entry(DOMAIN_TIME, 8), Side::Left))
-    } else if IDENTIFIER_LEFT.contains(&left) {
+    } else if IDENTIFIER_LEFT.contains(&left) || left == english::DOT {
         Some((pack_entry(DOMAIN_IDENTIFIER, 12), Side::Left))
+    } else if right == english::DOT {
+        Some((pack_entry(DOMAIN_IDENTIFIER, 12), Side::Right))
     } else {
         None
     }
@@ -842,7 +845,7 @@ impl Pool {
             return ops;
         }
         self.dollars_and_cents(roles)
-            .unwrap_or_else(|| self.amount(roles))
+            .unwrap_or_else(|| self.amount(roles, op::GROUP_NOT_YEAR))
     }
 
     fn dollars_and_cents(&self, roles: &[Role]) -> Option<Vec<u32>> {
@@ -852,7 +855,7 @@ impl Pool {
             .position(|&r| r == ROLE_CURRENCY)
             .filter(|&d| d > 0)?;
         let mut ops = vec![op::litv(d as u8)];
-        ops.extend(self.amount(&roles[..d]));
+        ops.extend(self.amount(&roles[..d], op::GROUP));
         ops.push(op::skip(1));
         let mut rest = &roles[d + 1..];
         if rest.first() == Some(&ROLE_AND) {
@@ -869,25 +872,34 @@ impl Pool {
         Some(ops)
     }
 
-    fn amount(&self, roles: &[Role]) -> Vec<u32> {
+    /// The written number for `roles`; `group` is how integer parts take
+    /// thousands commas (an `op::GROUP*` value).
+    fn amount(&self, roles: &[Role], group: u8) -> Vec<u32> {
         use english::{ROLE_DIGIT, ROLE_MSCALE, ROLE_OH, ROLE_ORDINAL, ROLE_POINT, ROLE_SCALE};
         let n = roles.len();
         let n8 = n as u8;
         let scaled = n >= 2 && matches!(roles[n - 1], ROLE_SCALE | ROLE_MSCALE);
         if let Some(p) = roles.iter().position(|&r| r == ROLE_POINT) {
             let frac = (n - p - 1 - usize::from(scaled)) as u8;
+            // "one point eighty two" is 1.82, not 1.802.
+            let pair = p > 0 && two_digit_group(&roles[p + 1..p + 1 + frac as usize]);
             let mut ops = Vec::with_capacity(8);
             if p > 0 {
                 ops.push(op::fold(0, p as u8));
             }
-            ops.extend([op::skip(1), op::digits(1, frac)]);
+            ops.push(op::skip(1));
+            ops.push(if pair {
+                op::fold(1, frac)
+            } else {
+                op::digits(1, frac)
+            });
             if p > 0 {
-                ops.push(op::emit(0, 0));
+                ops.push(op::emit_grouped(0, group));
                 ops.push(op::lit(self.dot));
             } else {
                 ops.push(op::lit(self.zero_dot));
             }
-            ops.push(op::emit(1, frac));
+            ops.push(op::emit(1, if pair { 2 } else { frac }));
             if scaled {
                 ops.extend([op::lit(self.space), op::raw(1)]);
             }
@@ -899,16 +911,16 @@ impl Pool {
         if n >= 2 && roles[n - 1] == ROLE_MSCALE && !higher {
             return vec![
                 op::fold(0, n8 - 1),
-                op::emit(0, 0),
+                op::emit_grouped(0, group),
                 op::lit(self.space),
                 op::raw(1),
             ];
         }
         if roles.last() == Some(&ROLE_ORDINAL) {
-            return vec![op::fold(0, n8), op::emit(0, 0), op::ord(0)];
+            return vec![op::fold(0, n8), op::emit_grouped(0, group), op::ord(0)];
         }
         if n >= 2 && roles.iter().all(|&r| r == ROLE_DIGIT || r == ROLE_OH) {
-            return vec![op::digits(0, n8), op::emit(0, 0)];
+            return vec![op::digits(0, n8), op::emit(0, n8)];
         }
         if roles.first() == Some(&ROLE_DIGIT) && two_digit_group(&roles[1..]) {
             return vec![
@@ -918,7 +930,7 @@ impl Pool {
                 op::emit(1, 2),
             ];
         }
-        vec![op::fold(0, n8), op::emit(0, 0)]
+        vec![op::fold(0, n8), op::emit_grouped(0, group)]
     }
 
     fn domain_lists(
@@ -949,13 +961,17 @@ impl Pool {
             }
             _ => card.clone(),
         };
+        let raw = self.raw(roles.len())?;
         let ident = if src & SRC_IDENTIFIER != 0 {
             vec![self.identifier(roles)?, card[0]]
         } else {
-            card.clone()
+            // After "flight" or "room", a time-shaped run is a number: 417.
+            let mut c: Vec<ProgramId> = card.iter().copied().filter(|&p| p != raw).collect();
+            c.push(raw);
+            c
         };
         let date = self.date(roles)?;
-        let mut plain = vec![self.raw(roles.len())?];
+        let mut plain = vec![raw];
         plain.extend(&reading);
         let card = if matches!(roles, [r] if LONE_WORDS.contains(r)) {
             plain.clone()
@@ -970,14 +986,23 @@ impl Pool {
         let n = roles.len();
         let affix = n as u8;
         let ops = match AFFIX_DOMAINS[slot].0 {
-            DOMAIN_MONEY => [&[op::litv(affix)][..], &self.amount(roles), &[op::skip(1)]].concat(),
+            DOMAIN_MONEY => [
+                &[op::litv(affix)][..],
+                &self.amount(roles, op::GROUP),
+                &[op::skip(1)],
+            ]
+            .concat(),
             DOMAIN_CENTS => match self.dollars_and_cents(roles) {
                 Some(ops) => [&ops[..], &[op::skip(1)]].concat(),
-                None => [&self.amount(roles)[..], &[op::lit(self.space), op::raw(1)]].concat(),
+                None => [
+                    &self.amount(roles, op::GROUP)[..],
+                    &[op::lit(self.space), op::raw(1)],
+                ]
+                .concat(),
             },
             DOMAIN_MEASURE_POWER => return self.spelled(n, 2, roles),
             DOMAIN_MEASURE_PREFIX => [
-                &self.amount(roles)[..],
+                &self.amount(roles, op::GROUP)[..],
                 &[
                     op::lit(self.space),
                     op::litv(affix),
@@ -987,10 +1012,14 @@ impl Pool {
                 ],
             ]
             .concat(),
-            DOMAIN_PERCENT => [&self.amount(roles)[..], &[op::litv(affix), op::skip(1)]].concat(),
+            DOMAIN_PERCENT => [
+                &self.amount(roles, op::GROUP)[..],
+                &[op::litv(affix), op::skip(1)],
+            ]
+            .concat(),
             DOMAIN_MEASURE => return self.spelled(n, 1, roles),
             _ => [
-                &self.amount(roles)[..],
+                &self.amount(roles, op::GROUP)[..],
                 &[op::lit(self.space), op::litv(affix), op::skip(1)],
             ]
             .concat(),
@@ -1007,7 +1036,7 @@ impl Pool {
     ) -> Result<Vec<ProgramId>, BuildError> {
         let len = n + unit_len;
         let spelled = [
-            &self.amount(roles)[..],
+            &self.amount(roles, op::GROUP)[..],
             &[op::lit(self.space), op::raw(unit_len as u8)],
         ]
         .concat();
@@ -1079,7 +1108,8 @@ impl Pool {
             let mut ops = vec![op::fold(0, (k + 1) as u8), op::emit(0, 0), op::ord(0)];
             if !rest.is_empty() {
                 let split = pair_split(rest);
-                let sep = if comma && split.is_some() {
+                let year = split.is_some() || rest.len() >= 2;
+                let sep = if comma && year {
                     self.comma
                 } else {
                     self.space
@@ -1119,7 +1149,7 @@ impl Pool {
         };
         let n = roles.len() + 1;
         let spoken = [&[op::raw(1), op::lit(self.space)][..], &plain].concat();
-        let amount = self.amount(roles);
+        let amount = self.amount(roles, op::GROUP_NONE);
         let mut out = Vec::with_capacity(2);
         for (domain, name) in [
             (english::DOMAIN_MONTH_DATE, op::litv(0)),
@@ -1380,11 +1410,11 @@ mod tests {
         assert_cardinal(
             &t,
             &[
-                ("thirty two thousand five hundred seventy one", "32571"),
-                ("sixteen million two hundred thousand", "16200000"),
-                ("thirteen hundred", "1300"),
-                ("forty two hundred and six", "4206"),
-                ("twelve hundred eighty four", "1284"),
+                ("thirty two thousand five hundred seventy one", "32,571"),
+                ("sixteen million two hundred thousand", "16,200,000"),
+                ("thirteen hundred", "1,300"),
+                ("forty two hundred and six", "4,206"),
+                ("twelve hundred eighty four", "1,284"),
             ],
         );
     }
@@ -1581,8 +1611,8 @@ mod tests {
             ("on june fifth", "on June 5th"),
             ("he died may eleventh", "he died May 11th"),
             ("may nineteen ninety", "May 1990"),
-            ("you may one day", "you may 1 day"),
-            ("you may two days", "you may 2 days"),
+            ("you may one day", "you may one day"),
+            ("you may two days", "you may two days"),
             ("may five hundred", "may 500"),
             ("you may go", "you may go"),
             ("in march", "in march"),
@@ -1612,7 +1642,7 @@ mod tests {
             ),
             (
                 "by the thirteenth and fourteenth of june",
-                "by the 13th and 14th of june",
+                "by the 13th and 14th of June",
             ),
             ("ages twelve and thirteen", "ages 12 and 13"),
             ("four hundred and fifty three", "453"),
@@ -1622,7 +1652,7 @@ mod tests {
                 "seven hundred and one point one one",
                 "seven hundred and one point one one",
             ),
-            ("a hundred and fifty dollars", "a hundred and fifty dollars"),
+            ("a hundred and fifty dollars", "$150"),
             ("eighteen hundred and more", "eighteen hundred and more"),
             ("four dollars and so on", "$4 and so on"),
             (
@@ -1655,9 +1685,9 @@ mod tests {
             ("twenty fifth", "25th"),
             ("twenty five", "25"),
             ("one hundred five", "105"),
-            ("sixty one hundred", "6100"),
+            ("sixty one hundred", "6,100"),
             ("two thousand five", "2005"),
-            ("five thousand twenty", "5020"),
+            ("five thousand twenty", "5,020"),
             ("at five thirty", "at 5:30"),
             ("january eighth eighteen fifteen", "January 8th, 1815"),
         ] {
@@ -1778,9 +1808,9 @@ mod tests {
             ("five point two million", "5.2 million"),
             (
                 "one billion five hundred ninety three million",
-                "1593000000",
+                "1,593,000,000",
             ),
-            ("five billion two million", "5002000000"),
+            ("five billion two million", "5,002,000,000"),
         ] {
             assert_eq!(render_rank0(&t, phrase, DOMAIN_CARDINAL), want, "{phrase}");
         }
@@ -1879,7 +1909,7 @@ mod tests {
                 ("eighteen oh two", "1802"),
                 ("two thousand and eight", "2008"),
                 ("two thousand four", "2004"),
-                ("nineteen hundred", "1900"),
+                ("nineteen hundred", "1,900"),
             ],
         );
     }
@@ -1910,8 +1940,8 @@ mod tests {
             &[
                 ("zeroth", "0th"),
                 ("one hundredth", "100th"),
-                ("three thousandth", "3000th"),
-                ("fourteen hundred thirty second", "1432nd"),
+                ("three thousandth", "3,000th"),
+                ("fourteen hundred thirty second", "1,432nd"),
             ],
         );
     }
@@ -2168,7 +2198,7 @@ mod tests {
         t.candidates
             .render(DOMAIN_MONEY, rank0, &values, &words, &mut out, &mut pos)
             .expect("render");
-        assert_eq!(&out[..pos], b"$2005");
+        assert_eq!(&out[..pos], b"$2,005");
     }
 
     #[test]

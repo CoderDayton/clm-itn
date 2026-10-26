@@ -82,17 +82,22 @@ pub fn normalize_into(&self, text: &str, out: &mut String)   // feature "alloc"
 Rewrites a line of any length and appends the result to `out`. Clear `out` between lines to reuse it. Behavior:
 
 - **Windows:** the line is split into windows of at most 8 tokens. A cut never falls inside a run of number words. When a run would cross the limit, the next window starts on the word before the run, so the run keeps its left context ("room", "at").
-- **Long numbers:** a number spoken in more than 8 words is split after `thousand`, `million`, `billion` or `trillion`. The pieces are formatted alone and joined only when each renders as digits ("one hundred forty seven thousand four hundred fifty one" → `147451`). Otherwise the whole run stays as words.
+- **Long numbers:** a number spoken in more than 8 words is split after `thousand`, `million`, `billion` or `trillion`. The pieces are formatted alone and joined only when each renders as digits ("one hundred forty seven thousand four hundred fifty one" → `147,451`). Otherwise the whole run stays as words. A run of more than 8 digit words is split anywhere and its digits are concatenated ("one eight hundred two five five four six eight eight" → `18002554688`).
+- **Thousands commas:** counts and amounts of 1,000 or more get commas (`1,500 people`, `$2,005`, `9,876,543`). Not grouped: 2000 to 2099 (read as years), "N hundred" or "N hundred and M" ending a clause or before `hours` ("in nineteen hundred" → `1900`, "in nineteen hundred and five" → `1905`, "seventeen hundred hours" → `1700 hours`), years, digit strings, times and decimals. Before a noun it is a count ("fifteen hundred and fifty people" → `1,550 people`).
+- **Digit strings:** "double" and "triple" repeat the next digit word ("double oh seven" → `007`). In a run of 7 or more digit words, "hundred" stands for `00` (phone numbers). "dot" between two numbers becomes `.` ("one ninety two dot one sixty eight dot one dot one" → `192.168.1.1`).
+- **Spoken forms:** "a hundred" or "a thousand" followed by more number words or a currency or unit word reads as "one" ("a hundred and twenty" → `120`, "a hundred dollars" → `$100`, "a thousand dollars" → `$1,000`); "a hundred people", "a hundred percent" and "a million dollars" stay words. "a dollar fifty" → `$1.50`. "eleven" to "nineteen" before `hundreds` gives a century ("the eighteen hundreds" → `the 1800s`). A hyphenated pair of number words reads as two words ("twenty-five" → `25`, "six forty-five a.m." → `6:45 a.m.`), and prints as written if it stays words. A digit token from `1` to `12` before a minute word reads as its word ("meet at 5 thirty pm" → `meet at 5:30 pm`). "it's" before a clock reading works like "at": "it's five thirty" and "it's 5 thirty" → `it's 5:30`; "it's twenty five" → `it's 25`. "the fourth of july" gives `the 4th of July`. A number before a street word (`street`, `avenue`, `road`, `boulevard`, `lane`, `drive`, `court`, `place`, `parkway`, `highway`) is read on its own ("at fourteen fifty five market street" → `at 1455 market street`).
 - **Punctuation:** leading `"'([{` and trailing `.,;:!?"')]}` are stripped from a lexicon word, treated as a window edge, and put back ("twenty five," → `25,`). A trailing period is not doubled after `p.m.`.
-- **Lone words:** "one", "first", "second" and "two" through "nine" stay words when alone between punctuation or line edges ("First, we go", "one, two, three").
-- **Run guard:** a run of number words stays as written when a filler (`uh`, `um`, `er`, `ah`, `uhm`, `hmm`) sits inside it, when the next word is a counting word plus `s` or `'s` ("twenty fives"), or when a digit token touches it ("twenty 5").
-- **Word sense:** a lone "one" to "nine" that is not a count stays a word with every setting: "one" after `no`, `which`, `this`, `that` or `the`; "one" before `of`, `more`, `another`, `at`, `way`, `thing` or `sec` when no number follows; "one day" opening a clause; "in one piece"; "one in a million"; "one by one"; "one another"; a number before `of us`, `of them` or `of you`; a number before a fraction word (`half`, `third`, `thirds`, `quarter`, `quarters`, `halves`); and "cloud nine", "six of one", "two heads are better than one". "one of five", "in one day" and "one in the morning" still give digits.
+- **Lone words:** "first" and "second" stay words when alone between punctuation or line edges ("First, we go"). Two or more digit words in a row, each closed by punctuation, are a count said aloud and stay words ("One, two, three, go."); "twenty, thirty, forty" still formats.
+- **Verbs:** "may" and "march" after a pronoun, `who`, `to` or a modal (`will`, `can`, `could`, `might`, `would`, `should`, `must`) are verbs and stay lowercase words ("we march five miles" → `we march 5 miles`). After such a "may", "first" and "one" stay words ("it may first be noticed", "you may one day understand").
+- **Run guard:** a run of number words stays as written when a filler (`uh`, `um`, `er`, `ah`, `uhm`, `hmm`) sits inside it ("twenty uh five"), when the next word is a counting word plus `s` or `'s` ("twenty fives"), or when a digit token touches it ("twenty 5"). When the number after the filler starts with the same word as the one before it, the speaker restarted: only the part before the filler stays ("twenty uh twenty five" → `twenty uh 25`).
+- **Word sense:** a lone "one" to "nine" that is not a count stays a word with every setting: "one" after `no`, `which`, `this`, `that` or `the`; "one" before `of`, `more`, `another`, `at`, `way`, `thing` or `sec` when no number follows; "one day" opening a clause; "in one piece"; "one in a million"; "one by one"; "one another"; a number before `of us`, `of them` or `of you`; a number before a fraction word (`half`, `third`, `quarter`, and plurals such as `thirds`, `fifths`, `eighths`, `sixteenths`); "two and three quarters"; and "cloud nine", "six of one", "two heads are better than one", "eleventh hour", "one off", "twenty twenty vision". "one of five", "in one day" and "one in the morning" still give digits.
 - **Relative times:** a minute word (`five`, `ten`, `twenty`, `twenty five`, `quarter`, `half`), then `to`, `till`, `past` or `after`, then an hour word (`one` to `twelve`) stays as spoken with every setting ("it is ten to four"). This applies after a time cue (`at`, `is`, `it's`, `was`, `by`, `until`, `till`, `around`, `about`) or when the phrase is a whole clause, and not when a number word such as `pm` follows the hour. Ranges such as "from ten to twelve people" still format.
-- **Meridiem and zones** (`Setting::Letters`): `a m` and `p m` after a number word join into `am` and `pm`. After them, three letters spelling a time zone join into its abbreviation ("seven a m e s t" → `7 am EST`).
+- **Letters** (`Setting::Letters`): `a m` and `p m` after a number word join into `am` and `pm`. After them, three letters spelling a time zone join into its abbreviation ("seven a m e s t" → `7 am EST`). A lone letter next to a number joins it ("four k" → `4k`, "gate b twelve" → `b12`, "i sixty four" → `i64`); `a` never joins, `i` joins only before a number, and letters in a spelled run ("a b c") stay apart.
+- **Percent** (`Setting::Percent`): "per cent" after a number reads as `%`.
 - **Noon** (`Setting::Noon`): "twelve noon" and "twelve midnight" become `noon` and `midnight`.
 - **Whitespace:** runs of whitespace collapse to one space.
 
-It allocates: at most 3 times per line with a reused `String`, at most 7 with a new one, on the dictation gold set. It is not covered by the 1.00 µs budget.
+It allocates: at most 6 times per line with a reused `String`, at most 9 with a new one, on the dictation gold set. It is not covered by the 1.00 µs budget.
 
 ### Normalizer::format
 
@@ -125,7 +130,7 @@ A rewrite beyond writing numbers as digits. All are on by default. Derives `Clon
 | `Percent` | `percent` | 50% | 50 percent |
 | `Currency` | `currency` | $5, $4.50 | 5 dollars, 4 dollars and 50 cents |
 | `Dates` | `dates` | July 4th, 1990 | july 4th 1990 |
-| `Letters` | `letters` | 7 am EST | 7 a m e s t |
+| `Letters` | `letters` | 7 am EST, 4k, b12 | 7 a m e s t, 4 k, b 12 |
 | `Noon` | `noon` | noon | 12 noon |
 | `Oclock` | `oclock` | 5 o'clock | 5 oclock |
 | `Temperature` | `temperature` | 72 degrees Fahrenheit | 72 degrees fahrenheit |
@@ -183,7 +188,7 @@ The most tokens one `Normalizer::format` call accepts.
 |---|---|
 | none | `Normalizer`, `Normalizer::format`, `Setting`, `Formatted`, `FormatError`, `Tables`, `english`, `MAX_TOKENS`. `#![no_std]`, no heap. |
 | `alloc` | `Normalizer::normalize`, `Normalizer::normalize_into`, `format_line` |
-| `std` (default) | `alloc`, the table builder, and the `clm-itn`, `clm-bench`, `clm-eval`, `clm-learn` binaries |
+| `std` (default) | `alloc`, the table builder, the `clm-itn` and `clm-learn` binaries, and the `clm-bench` benchmark |
 
 ```toml
 clm-itn = { git = "https://github.com/CoderDayton/clm-itn", default-features = false }                       # format only
@@ -203,21 +208,21 @@ Reads spoken-form text from stdin, one sentence per line, and writes the written
 ### clm-bench
 
 ```text
-clm-bench [--n <count>] [--seed <u64>] [--tiers] | --lines <tsv> [--passes <count>]
+cargo bench --bench clm-bench -- [--n <count>] [--seed <u64>] [--tiers]
+cargo bench --bench clm-bench -- --corpus <file|folder> [--passes <count>] [--tag <t>] [--all-failures] [--no-<setting>]...
+cargo bench --bench clm-bench -- --pairs <pairgen split file> [--isolated]
+cargo bench --bench clm-bench -- --spell <id TAB raw TAB final file>
 ```
 
-Times `Normalizer::format` over a generated corpus (default 10⁶ utterances, seed 1) and checks p99 against 1.00 µs. `--tiers` adds a per-tier split. `--lines` times `format_line` over the first column of a TSV file and reports only. Exits non-zero when the gate fails. See [PERFORMANCE.md](PERFORMANCE.md).
+The default mode times `Normalizer::format` over a generated corpus (default 10⁶ utterances, seed 1) and checks p99 against 1.00 µs. `--tiers` adds a per-tier split. Exits non-zero when the gate fails. See [PERFORMANCE.md](PERFORMANCE.md).
 
-### clm-eval
+`--corpus` reads a corpus file, or each `.jsonl`, `.tsv` and `.txt` file in a folder (sorted by name, one report per file). For each file it prints accuracy, when lines carry a written form, then `format_line` timing (report only):
 
-```text
-clm-eval --lines <tsv> [--tag <t>] [--all-failures] [--no-<setting>]...
-clm-eval --pairs <pairgen split file> [--isolated]
-clm-eval --spell <id TAB raw TAB final file>
-```
+- Accuracy: right and wrong counts, then exact, digits right, and over-format rate per tag, for all lines and for firm lines (tags not ending in `!`). `--tag` keeps one tag (and its `!` form), `--all-failures` prints every miss, and `--no-<setting>` switches a setting off.
+- `.jsonl`: one JSON object per line. The spoken text is the first string field named `spoken`, `input`, `raw`, `text` or `sentence`; the written form is `written` or `gold`; the tag is `tag` or `category`. A line without spoken text is an error that names the line.
+- `.tsv` and `.txt`: `spoken [TAB written [TAB tag]]` per line. Lines starting with `#` are skipped. A line with a tab but an empty side counts as malformed.
 
-- `--lines` scores `spoken TAB written [TAB tag]` lines: exact, digits right, and over-format rate, per tag and for firm lines (tags not ending in `!`). `--tag` filters by tag, and `--all-failures` prints every miss.
-- `--pairs` scores a `tools/pairgen/` split file per semiotic class, either in sentence context or with `--isolated` spans.
+`--pairs` scores a `tools/pairgen/` split file per semiotic class, either in sentence context or with `--isolated` spans.
 - `--spell` reads `id`, `raw`, `final` columns, turns the digits in `final` back into words, and prints `spoken`, `written`, `whisper` columns. This builds a test set from text that already has digits.
 
 ### clm-learn

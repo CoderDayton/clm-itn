@@ -16,7 +16,7 @@ The Google Text Normalization dataset is licensed CC BY-NC-SA 4.0 and is not use
 
 ## Results
 
-Run on 198,779 sentences (train 178,873, val 10,073, test 9,833) against the hand tables as they stood with 511 shapes. The hand tables have changed since; for current accuracy, run the dictation gold set (see `README.md`, Checks).
+Run on 198,779 sentences (train 178,873, val 10,073, test 9,833) against the hand tables as they stood with 511 shapes. The hand tables have changed since; for current accuracy, score the dictation gold set with `cargo bench --bench clm-bench -- --corpus tests/data/dictation.tsv` (see [API.md](API.md#clm-bench)).
 
 | Tables | Val exact | Test exact |
 |---|---|---|

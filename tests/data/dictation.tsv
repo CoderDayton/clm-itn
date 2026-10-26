@@ -20,8 +20,8 @@ it's five thirty	it's 5:30	time!
 the bus comes at ten oh five	the bus comes at 10:05	time
 the deadline is twelve noon	the deadline is noon	time!
 the party ends at twelve midnight	the party ends at midnight	time!
-meet me at half past four	meet me at 4:30	time!
-the class starts at a quarter past nine	the class starts at 9:15	time!
+meet me at half past four	meet me at half past four	time!
+the class starts at a quarter past nine	the class starts at a quarter past nine	time!
 we left at ten pm	we left at 10 pm	time
 the appointment is at eleven fifteen am	the appointment is at 11:15 am	time
 we work from nine am to five pm	we work from 9 am to 5 pm	time
@@ -72,9 +72,9 @@ the report is due friday march seventh	the report is due friday March 7th	date!
 on july first	on July 1st	date
 the lease ends august thirty first twenty twenty seven	the lease ends August 31st, 2027	date
 we moved on january second	we moved on January 2nd	date
-the party is on the fifth of may	the party is on the fifth of may	date!
-it starts the first of june	it starts the first of june	date!
-we celebrate the fourth of july	we celebrate the fourth of july	date!
+the party is on the fifth of may	the party is on the 5th of May	date!
+it starts the first of june	it starts the 1st of June	date!
+we celebrate the fourth of july	we celebrate the 4th of July	date!
 rent is due on the fifteenth	rent is due on the 15th	date!
 see you on the third	see you on the third	date
 it ships in april twenty twenty six	it ships in April 2026	date
@@ -87,16 +87,16 @@ it costs twenty dollars	it costs $20	money
 it was five dollars and fifty cents	it was $5.50	money
 it costs fifty cents	it costs 50 cents	money
 the fee is seventy five cents	the fee is 75 cents	money
-we paid twelve hundred dollars	we paid $1200	money
-the repair was two thousand five hundred dollars	the repair was $2500	money
+we paid twelve hundred dollars	we paid $1,200	money
+the repair was two thousand five hundred dollars	the repair was $2,500	money
 give me a hundred dollars	give me $100	money
-it costs a thousand dollars	it costs $1000	money!
-the house sold for five hundred thousand dollars	the house sold for $500000	money
+it costs a thousand dollars	it costs $1,000	money!
+the house sold for five hundred thousand dollars	the house sold for $500,000	money
 the prize is one million dollars	the prize is $1 million	money
 they raised five million dollars	they raised $5 million	money
 the deal is two point five million dollars	the deal is $2.5 million	money
 a three billion dollar budget	a $3 billion budget	money
-the rent is fifteen hundred dollars a month	the rent is $1500 a month	money
+the rent is fifteen hundred dollars a month	the rent is $1,500 a month	money
 i paid forty dollars for it	i paid $40 for it	money
 it's ninety nine cents	it's 99 cents	money
 the total is ten dollars and five cents	the total is $10.05	money
@@ -104,15 +104,15 @@ it's one dollar	it's $1	money
 coffee is a dollar fifty	coffee is $1.50	money!
 lend me twenty bucks	lend me 20 bucks	money!
 it costs five euros	it costs 5 euros	money
-the budget is ten thousand dollars	the budget is $10000	money
-we raised two hundred fifty thousand dollars	we raised $250000	money
+the budget is ten thousand dollars	the budget is $10,000	money
+we raised two hundred fifty thousand dollars	we raised $250,000	money
 he got a three hundred dollar fine	he got a $300 fine	money
 it's a five dollar bill	it's a $5 bill	money
 the ticket was sixty five dollars	the ticket was $65	money
 add eight dollars for shipping	add $8 for shipping	money
 the price went up by two dollars	the price went up by $2	money
 i'd love a million dollars	i'd love a million dollars	money!
-she makes twenty five thousand dollars a year	she makes $25000 a year	money
+she makes twenty five thousand dollars a year	she makes $25,000 a year	money
 he owes me thirty dollars	he owes me $30	money
 the bill came to eighty seven dollars and twenty cents	the bill came to $87.20	money
 a nine dollar sandwich	a $9 sandwich	money
@@ -120,8 +120,8 @@ i have three kids	i have 3 kids	count
 we have twelve people coming	we have 12 people coming	count
 about fifty people showed up	about 50 people showed up	count
 i sent two hundred emails	i sent 200 emails	count
-there are fifteen hundred students	there are 1500 students	count
-the stadium held twenty five thousand fans	the stadium held 25000 fans	count
+there are fifteen hundred students	there are 1,500 students	count
+the stadium held twenty five thousand fans	the stadium held 25,000 fans	count
 two million people live there	2 million people live there	count!
 the app has one point five million users	the app has 1.5 million users	count
 the team has eleven players	the team has 11 players	count
@@ -131,8 +131,8 @@ order thirty six boxes	order 36 boxes	count
 she has three sons and two daughters	she has 3 sons and 2 daughters	count
 i read twenty books this year	i read 20 books this year	count
 we got one hundred and five votes	we got 105 votes	count
-the video has three hundred thousand views	the video has 300000 views	count
-it has ten thousand reviews	it has 10000 reviews	count
+the video has three hundred thousand views	the video has 300,000 views	count
+it has ten thousand reviews	it has 10,000 reviews	count
 we expect between five and ten people	we expect between 5 and 10 people	count!
 twelve or thirteen kids came	12 or 13 kids came	count!
 i tried two or three times	i tried 2 or 3 times	count
@@ -141,7 +141,7 @@ there were ninety nine problems	there were 99 problems	count
 add six eggs	add 6 eggs	count
 the answer is forty two	the answer is 42	count
 a meal with eight hundred calories	a meal with 800 calories	count
-i walked one thousand two hundred thirty four steps	i walked 1234 steps	count
+i walked one thousand two hundred thirty four steps	i walked 1,234 steps	count
 we hired fourteen new people	we hired 14 new people	count
 there are four hundred fifty seats	there are 450 seats	count
 the sale is five percent off	the sale is 5% off	percent
@@ -166,19 +166,19 @@ we got three inches of snow	we got 3 inches of snow	unit
 it weighs twenty five pounds	it weighs 25 pounds	unit
 buy two pounds of flour	buy 2 pounds of flour	unit
 the box is ten kilograms	the box is 10 kilograms	unit
-i signed up for a five kilometer run	i signed up for a 5-kilometer run	unit!
+i signed up for a five kilometer run	i signed up for a 5 kilometer run	unit!
 it's sixty degrees outside	it's 60 degrees outside	unit
 it's ninety five degrees	it's 95 degrees	unit
 it was minus five degrees	it was minus 5 degrees	unit!
 drink two liters of water	drink 2 liters of water	unit
 add five hundred grams	add 500 grams	unit
 set it to seventy two degrees fahrenheit	set it to 72 degrees Fahrenheit	unit!
-a twelve ounce can	a 12-ounce can	unit!
+a twelve ounce can	a 12 ounce can	unit!
 it's thirty miles away	it's 30 miles away	unit
 the table is four feet wide	the table is 4 feet wide	unit
 cut it to nine inches	cut it to 9 inches	unit
-he drove sixty miles per hour	he drove 60 mph	unit!
-the speed limit is twenty five miles per hour	the speed limit is 25 mph	unit!
+he drove sixty miles per hour	he drove 60 miles per hour	unit!
+the speed limit is twenty five miles per hour	the speed limit is 25 miles per hour	unit!
 the phone has eight gigabytes of memory	the phone has 8 gigabytes of memory	unit!
 add three cups of flour	add 3 cups of flour	unit!
 add two tablespoons of sugar	add 2 tablespoons of sugar	unit!
@@ -186,9 +186,9 @@ the room is four hundred square feet	the room is 400 square feet	unit
 grow ten centimeters	grow 10 centimeters	unit
 the store is a mile away	the store is a mile away	unit
 we walked half a mile	we walked half a mile	unit
-she is five foot ten	she is 5-foot-10	unit!
+she is five foot ten	she is 5 foot 10	unit!
 the lake is two hundred meters deep	the lake is 200 meters deep	unit
-it's four thousand miles away	it's 4000 miles away	unit
+it's four thousand miles away	it's 4,000 miles away	unit
 in the twenty first century	in the 21st century	ordinal
 she finished third	she finished third	ordinal
 he's in tenth grade	he's in 10th grade	ordinal
@@ -210,7 +210,7 @@ in twenty twenty five	in 2025	year
 back in two thousand eight	back in 2008	year
 since two thousand	since 2000	year!
 music from the nineteen nineties	music from the 1990s	year
-music from the eighties	music from the '80s	year!
+music from the eighties	music from the 80s	year!
 built in nineteen oh five	built in 1905	year
 by twenty thirty	by 2030	year
 in two thousand and ten	in 2010	year
@@ -221,12 +221,12 @@ houses from the eighteen hundreds	houses from the 1800s	year!
 twenty twenty was a strange year	2020 was a strange year	year!
 she is five years old	she is 5 years old	age
 my son is seven	my son is 7	age!
-a five year old boy	a 5-year-old boy	age!
+a five year old boy	a 5 year old boy	age!
 he turned forty	he turned 40	age
 she is in her forties	she is in her 40s	age
 the woman is thirty five	the woman is 35	age!
 our dog is twelve years old	our dog is 12 years old	age
-a thirty year old man	a 30-year-old man	age!
+a thirty year old man	a 30 year old man	age!
 it got a three point five rating	it got a 3.5 rating	decimal
 zero point two seconds faster	0.2 seconds faster	decimal
 install version two point one	install version 2.1	decimal
@@ -339,7 +339,7 @@ Call me at seven.	Call me at 7.	punct!
 I ran five miles today.	I ran 5 miles today.	punct
 It's fifty percent off.	It's 50% off.	punct
 She's in tenth grade.	She's in 10th grade.	punct
-Twenty five people came.	Twenty five people came.	punct!
+Twenty five people came.	25 people came.	punct!
 In twenty twenty, things changed.	In 2020, things changed.	punct
 At first, nobody came.	At first, nobody came.	punct
 May fifth works for me.	May 5th works for me.	punct
@@ -347,7 +347,7 @@ It may first seem odd.	It may first seem odd.	punct
 Uh, twenty five, I think.	Uh, 25, I think.	punct
 That's a fifty fifty chance.	That's a fifty fifty chance.	punct!
 One fifth of the class failed.	One fifth of the class failed.	punct!
-The rent is twelve hundred dollars, due monthly.	The rent is $1200, due monthly.	punct
+The rent is twelve hundred dollars, due monthly.	The rent is $1,200, due monthly.	punct
 We meet on June third, at noon.	We meet on June 3rd, at noon.	punct
 Version two point one is out.	Version 2.1 is out.	punct
 It's ninety degrees, so stay inside.	It's 90 degrees, so stay inside.	punct
@@ -355,5 +355,5 @@ Oh, one more thing.	Oh, one more thing.	punct
 Is it twenty-five or thirty?	Is it 25 or 30?	punct!
 I paid twenty-five dollars.	I paid $25.	punct
 The flight is at six forty-five a.m.	The flight is at 6:45 a.m.	punct!
-Ten minutes, then we start.	Ten minutes, then we start.	punct!
+Ten minutes, then we start.	10 minutes, then we start.	punct!
 Wait, is it five or six?	Wait, is it 5 or 6?	punct

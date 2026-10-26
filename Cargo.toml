@@ -15,7 +15,7 @@ exclude = [".github/", "CLAUDE.md", "Scripts.toml", "lefthook.yml", "tools/"]
 
 [features]
 default = ["std"]
-# The CLI, the bench and eval tools, and the table builder.
+# The CLI, the bench, and the table builder.
 std = ["alloc"]
 # Normalizer::normalize, Normalizer::normalize_into and format_line.
 alloc = []
@@ -31,11 +31,6 @@ opt-level = 3
 lto = "fat"
 codegen-units = 16
 
-[profile.benchmark]
-inherits = "release"
-lto = "thin" # Faster linking than "fat" while retaining 90% of performance gains
-codegen-units = 4
-
 [lints.rust]
 # Set by build.rs when the `std` feature is off.
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(clm_no_std)"] }
@@ -46,16 +41,17 @@ path = "src/main.rs"
 required-features = ["std"]
 
 [[bin]]
-name = "clm-bench"
-path = "src/bin/clm-bench/main.rs"
-required-features = ["std"]
-
-[[bin]]
-name = "clm-eval"
-path = "src/bin/clm-eval/main.rs"
-required-features = ["std"]
-
-[[bin]]
 name = "clm-learn"
 path = "src/bin/clm-learn/main.rs"
+required-features = ["std"]
+
+[[bench]]
+name = "clm-bench"
+harness = false
+required-features = ["std"]
+
+# The bench's unit tests; `cargo test` does not build bench targets.
+[[test]]
+name = "clm-bench"
+path = "benches/clm-bench/unit.rs"
 required-features = ["std"]

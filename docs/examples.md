@@ -10,6 +10,7 @@ Every Rust block here runs as a doctest (`cargo test --doc`).
 - [Without `std`](#without-std)
 - [Command line](#command-line)
 - [Scoring your own data](#scoring-your-own-data)
+- [Timing your own data](#timing-your-own-data)
 
 ## Normalize a line
 
@@ -55,7 +56,7 @@ Every rewrite beyond writing numbers as digits is a `Setting`. All of them are o
 | `Percent` | 50% | 50 percent |
 | `Currency` | $5, $4.50 | 5 dollars, 4 dollars and 50 cents |
 | `Dates` | July 4th, 1990 | july 4th 1990 |
-| `Letters` | 7 am EST | 7 a m e s t |
+| `Letters` | 7 am EST, 4k, b12 | 7 a m e s t, 4 k, b 12 |
 | `Noon` | noon | 12 noon |
 | `Oclock` | 5 o'clock | 5 oclock |
 | `Temperature` | 72 degrees Fahrenheit | 72 degrees fahrenheit |
@@ -147,7 +148,7 @@ clm-itn = { version = "0.1", default-features = false }                       # 
 |---|---|
 | none | `Normalizer`, `Normalizer::format`, `Setting`, `FormatError`. No heap. |
 | `alloc` | `Normalizer::normalize`, `Normalizer::normalize_into`, `format_line` |
-| `std` (default) | `alloc`, the table builder, and the `clm-itn`, `clm-bench`, `clm-eval`, `clm-learn` binaries |
+| `std` (default) | `alloc`, the table builder, the `clm-itn` and `clm-learn` binaries, and the `clm-bench` benchmark |
 
 ## Command line
 
@@ -163,17 +164,23 @@ echo "like eight years at fifty percent" | clm-itn --no-single-digits --no-perce
 clm-itn < spoken.txt > written.txt
 ```
 
-## Scoring your own data
+## Scoring and timing your own data
 
-`clm-eval` scores the engine against a tab-separated file of `spoken`, `written` and an optional tag per line:
+`--corpus` runs a corpus file, or every `.jsonl`, `.tsv` and `.txt` file in a folder, with one report per file: right and wrong counts when lines carry a written form, then `format_line` timing. A `.tsv` line is `spoken [TAB written [TAB tag]]`. A `.jsonl` line is an object; the spoken text is its first `spoken`, `input`, `raw`, `text` or `sentence` string field, the written form `written` or `gold`, the tag `tag` or `category`:
+
+```json
+{"id": 1, "spoken": "set an alarm for seven thirty am", "written": "set an alarm for 7:30 am"}
+{"id": 2, "raw": "it costs twenty five dollars"}
+```
 
 ```bash
-cargo run --release --bin clm-eval -- --lines tests/data/dictation.tsv
-cargo run --release --bin clm-eval -- --lines my.tsv --no-single-digits --all-failures
+cargo bench --bench clm-bench -- --corpus tests/data/dictation.tsv
+cargo bench --bench clm-bench -- --corpus my.tsv --no-single-digits --all-failures
+CORPUS=my-corpora/ cargo script bench-corpus
 ```
 
 To build a test set from text that already has digits (for example Whisper output), `--spell` reads a file of `id`, `raw`, `final` columns, turns the digits in `final` back into words, and prints `spoken`, `written`, `whisper` columns:
 
 ```bash
-cargo run --release --bin clm-eval -- --spell pairs.tsv > spelled.tsv
+cargo bench --bench clm-bench -- --spell pairs.tsv > spelled.tsv
 ```

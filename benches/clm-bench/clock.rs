@@ -11,7 +11,9 @@ pub fn gate_decision(ns_per_tick: f64, invariant_tsc: bool) -> bool {
     invariant_tsc && ns_per_tick <= GATE_NS_PER_TICK
 }
 
+// Built under `test` on every host so the unit tests cover it.
 #[cfg(any(test, target_arch = "x86_64"))]
+#[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
 pub fn rate_from_leaf15(eax: u32, ebx: u32, ecx: u32) -> Option<f64> {
     if eax == 0 || ebx == 0 || ecx == 0 {
         return None;
@@ -20,6 +22,7 @@ pub fn rate_from_leaf15(eax: u32, ebx: u32, ecx: u32) -> Option<f64> {
 }
 
 #[cfg(any(test, target_arch = "aarch64"))]
+#[cfg_attr(not(target_arch = "aarch64"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
     Generic,
@@ -28,6 +31,7 @@ pub enum Source {
 }
 
 #[cfg(any(test, target_arch = "aarch64"))]
+#[cfg_attr(not(target_arch = "aarch64"), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Selection {
     pub source: Source,
@@ -36,6 +40,7 @@ pub struct Selection {
 }
 
 #[cfg(any(test, target_arch = "aarch64"))]
+#[cfg_attr(not(target_arch = "aarch64"), allow(dead_code))]
 pub fn select(
     generic_ns_per_tick: f64,
     try_pmu: impl FnOnce() -> Result<(f64, String), String>,
@@ -299,78 +304,5 @@ mod arch {
 
     pub fn ns_per_tick() -> f64 {
         1.0
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ticks_to_ns_scales_by_rate() {
-        assert_eq!(ticks_to_ns(0, 0.25), 0.0);
-        assert_eq!(ticks_to_ns(400, 0.25), 100.0);
-        assert_eq!(ticks_to_ns(3, 41.0 + 2.0 / 3.0), 125.0);
-    }
-
-    #[test]
-    fn gate_passes_at_and_below_ten_ns_with_invariant_tsc() {
-        assert!(gate_decision(0.25, true));
-        assert!(gate_decision(10.0, true));
-    }
-
-    #[test]
-    fn gate_fails_above_ten_ns() {
-        assert!(!gate_decision(10.01, true));
-        assert!(!gate_decision(41.67, true));
-    }
-
-    #[test]
-    fn gate_fails_without_invariant_tsc() {
-        assert!(!gate_decision(0.25, false));
-    }
-
-    #[test]
-    fn leaf15_rate_is_crystal_times_ratio() {
-        assert_eq!(rate_from_leaf15(2, 188, 38_400_000), Some(3_609_600_000.0));
-    }
-
-    #[test]
-    fn leaf15_unreported_rate_is_none() {
-        assert_eq!(rate_from_leaf15(2, 188, 0), None);
-        assert_eq!(rate_from_leaf15(2, 0, 38_400_000), None);
-        assert_eq!(rate_from_leaf15(0, 188, 38_400_000), None);
-    }
-
-    #[test]
-    fn fine_generic_counter_skips_pmu() {
-        let s = select(1.0, || panic!("PMU must not be tried"));
-        assert_eq!(s.source, Source::Generic);
-        assert_eq!(s.ns_per_tick, 1.0);
-        assert!(gate_decision(s.ns_per_tick, s.source != Source::Coarse));
-    }
-
-    #[test]
-    fn coarse_generic_counter_uses_available_pmu() {
-        let s = select(41.67, || Ok((0.31, "3.2 GHz".into())));
-        assert_eq!(s.source, Source::Pmu);
-        assert_eq!(s.ns_per_tick, 0.31);
-        assert!(s.note.unwrap().contains("3.2 GHz"));
-        assert!(gate_decision(s.ns_per_tick, s.source != Source::Coarse));
-    }
-
-    #[test]
-    fn coarse_generic_counter_without_pmu_stays_coarse_with_reason() {
-        let s = select(41.67, || Err("perf_user_access=0".into()));
-        assert_eq!(s.source, Source::Coarse);
-        assert_eq!(s.ns_per_tick, 41.67);
-        assert!(s.note.unwrap().contains("perf_user_access=0"));
-        assert!(!gate_decision(s.ns_per_tick, s.source != Source::Coarse));
-    }
-
-    #[test]
-    fn median_of_odd_and_even_counts() {
-        assert_eq!(median(&mut [5, 1, 3]), 3);
-        assert_eq!(median(&mut [4, 1, 3, 2]), 3);
-        assert_eq!(median(&mut [7]), 7);
     }
 }

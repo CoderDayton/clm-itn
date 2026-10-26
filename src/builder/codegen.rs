@@ -92,6 +92,7 @@ pub fn to_rust(t: &Tables, name: &str) -> String {
     let _ = writeln!(s, "    connector_roles: {:#06x},", t.connector_roles);
     let _ = writeln!(s, "    bind_roles: {:#06x},", t.bind_roles);
     let _ = writeln!(s, "    words_first_roles: {:#06x},", t.words_first_roles);
+    let _ = writeln!(s, "    lead_skip_roles: {:#06x},", t.lead_skip_roles);
     s.push_str("};\n");
     s
 }

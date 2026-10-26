@@ -1,10 +1,19 @@
 mod alloc;
 mod clock;
 mod corpus;
+mod gold;
 mod lines;
+mod pairs;
+// Built under `test` on every host so the unit tests cover it.
 #[cfg(any(test, all(target_arch = "aarch64", target_os = "linux")))]
+#[cfg_attr(
+    not(all(target_arch = "aarch64", target_os = "linux")),
+    allow(dead_code)
+)]
 mod pmu;
 mod replay;
+mod score;
+mod spell;
 mod tiers;
 
 use std::hint::black_box;
@@ -14,35 +23,63 @@ use clm_itn::engine::Normalizer;
 use clm_itn::format_line;
 use clm_itn::types::MAX_TOKENS;
 
+use replay::{CorpusOpts, Mode};
+
 const OUT_BYTES: usize = 256;
 const P99_LIMIT_NS: f64 = 1000.0;
 const SAMPLES: usize = 5;
 
 fn main() -> ExitCode {
-    let args = match replay::parse_args(std::env::args().skip(1)) {
-        Ok(a) => a,
+    let mode = match replay::parse_args(std::env::args().skip(1)) {
+        Ok(m) => m,
         Err(e) => {
             eprintln!("{e}");
             return ExitCode::from(2);
         }
     };
+    match mode {
+        Mode::Pairs { path, isolated } => pairs::run(&path, isolated),
+        Mode::Spell(path) => spell::run(&path),
+        Mode::Corpus(opts) => match lines::load(&opts.path) {
+            Ok(files) => {
+                let (ns_per_tick, overhead, _) = timer();
+                run_corpus(&opts, &files, overhead, ns_per_tick)
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::FAILURE
+            }
+        },
+        Mode::Gate { n, seed, tiers } => {
+            let (ns_per_tick, overhead, gate) = timer();
+            run_gate(n, seed, tiers, overhead, ns_per_tick, gate)
+        }
+    }
+}
 
+fn timer() -> (f64, u64, bool) {
     let ns_per_tick = clock::ns_per_tick();
     let overhead = clock::overhead_ticks();
     let gate = clock::gate_passes();
     print_header(ns_per_tick, overhead, gate);
+    (ns_per_tick, overhead, gate)
+}
 
-    if let Some(path) = &args.lines {
-        return run_lines(path, args.passes, overhead, ns_per_tick);
-    }
-
+fn run_gate(
+    n: usize,
+    seed: u64,
+    tiers: bool,
+    overhead: u64,
+    ns_per_tick: f64,
+    gate: bool,
+) -> ExitCode {
     let engine = Normalizer::new(clm_itn::english());
-    let corpus = corpus::Corpus::generate(args.n, args.seed);
+    let corpus = corpus::Corpus::generate(n, seed);
     let n = corpus.len();
     let mut ticks = vec![0u32; n];
     let mut buf: [&[u8]; MAX_TOKENS] = [&[]; MAX_TOKENS];
     let mut out = [0u8; OUT_BYTES];
-    println!("corpus:         {n} utterances, seed {}", args.seed);
+    println!("corpus:         {n} utterances, seed {seed}");
 
     for i in 0..n {
         let k = corpus.utterance(i, &mut buf);
@@ -80,7 +117,7 @@ fn main() -> ExitCode {
 
     print_samples(&engine, &corpus);
 
-    if args.tiers {
+    if tiers {
         print_tiers(&engine, &corpus, overhead, ns_per_tick);
     }
 
@@ -98,27 +135,57 @@ fn main() -> ExitCode {
     }
 }
 
-fn run_lines(path: &str, passes: usize, overhead: u64, ns_per_tick: f64) -> ExitCode {
-    let text = match std::fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("cannot read {path}: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let spoken = lines::spoken_column(&text);
-    let n = spoken.len();
-    if n == 0 {
-        eprintln!("no lines in {path}");
-        return ExitCode::FAILURE;
+fn run_corpus(
+    opts: &CorpusOpts,
+    files: &[lines::CorpusFile],
+    overhead: u64,
+    ns_per_tick: f64,
+) -> ExitCode {
+    let engine = opts
+        .off
+        .iter()
+        .fold(Normalizer::english(), |e, &s| e.without(s));
+    if !opts.off.is_empty() {
+        let names: Vec<&str> = opts.off.iter().map(|s| s.name()).collect();
+        println!("settings off:   {}", names.join(", "));
     }
-    let engine = Normalizer::new(clm_itn::english());
-    println!("lines file:     {path}");
+    for f in files {
+        println!("\ncorpus file:    {}", f.name);
+        let wanted = |c: &&lines::Case| {
+            opts.tag
+                .as_deref()
+                .is_none_or(|t| gold::tag_matches(&c.tag, t))
+        };
+        let cases: Vec<&lines::Case> = f.cases.iter().filter(wanted).collect();
+        if let Some(t) = &opts.tag {
+            println!("tag filter:     {t} ({} lines)", cases.len());
+        }
+        if cases.is_empty() {
+            continue;
+        }
+        gold::print(
+            &gold::score(&engine, &cases, opts.all_failures),
+            f.malformed,
+        );
+        let spoken: Vec<&str> = cases.iter().map(|c| c.spoken.as_str()).collect();
+        report_lines(&engine, &spoken, opts.passes, overhead, ns_per_tick);
+    }
+    ExitCode::SUCCESS
+}
+
+fn report_lines(
+    engine: &Normalizer,
+    spoken: &[&str],
+    passes: usize,
+    overhead: u64,
+    ns_per_tick: f64,
+) {
+    let n = spoken.len();
     println!("lines:          {n} x {passes} passes (format_line, one reused String)");
 
-    let cold = line_allocations(&engine, &spoken, false);
-    let warm = line_allocations(&engine, &spoken, true);
-    let ticks = time_lines(&engine, &spoken, passes, overhead);
+    let cold = line_allocations(engine, spoken, false);
+    let warm = line_allocations(engine, spoken, true);
+    let ticks = time_lines(engine, spoken, passes, overhead);
 
     let ns = |t: u32| clock::ticks_to_ns(t as u64, ns_per_tick);
     let p99_line = lines::per_line(&ticks, n, 0.99);
@@ -153,7 +220,6 @@ fn run_lines(path: &str, passes: usize, overhead: u64, ns_per_tick: f64) -> Exit
         }
     }
     println!("result:         REPORT ONLY (p99 {p99:.1} ns vs budget {P99_LIMIT_NS} ns)");
-    ExitCode::SUCCESS
 }
 
 fn line_allocations(engine: &Normalizer, spoken: &[&str], reuse: bool) -> Vec<u64> {
@@ -223,7 +289,7 @@ fn print_header(ns_per_tick: f64, overhead: u64, gate: bool) {
         println!("cores:          1 usable (pinned)");
     } else {
         println!(
-            "cores:          {cores} usable (NOT pinned; sign-off needs `taskset -c <core> cargo run --release --bin clm-bench`)"
+            "cores:          {cores} usable (NOT pinned; sign-off needs `taskset -c <core> cargo bench --bench clm-bench`)"
         );
     }
 }

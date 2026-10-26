@@ -58,6 +58,8 @@ pub struct Tables {
     pub connector_roles: u16,
     pub bind_roles: u16,
     pub words_first_roles: u16,
+    /// Roles a span never starts with, such as "am" in "i am five".
+    pub lead_skip_roles: u16,
 }
 
 impl Tables {
@@ -89,6 +91,7 @@ impl Tables {
         connector_roles: 0,
         bind_roles: 0,
         words_first_roles: 0,
+        lead_skip_roles: 0,
     };
 
     #[cfg(not(clm_no_std))]

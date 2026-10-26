@@ -397,6 +397,7 @@ impl<'t> Normalizer<'t> {
             pair_only: self.tables.pair_only.0,
             connectors: self.tables.connector_roles,
             binds: self.tables.bind_roles,
+            lead_skip: self.tables.lead_skip_roles,
         }
     }
 
@@ -688,8 +689,8 @@ mod tests {
     fn affix_split_reads_money_and_percent_on_plain_shapes() {
         let engine = Normalizer::new(crate::english());
         for (text, want) in [
-            ("costs two thousand five dollars", "costs $2005"),
-            ("twenty three thousand dollars", "$23000"),
+            ("costs two thousand five dollars", "costs $2,005"),
+            ("twenty three thousand dollars", "$23,000"),
             ("five point two percent", "5.2%"),
             ("five percent", "5%"),
             ("fifty cents", "50 cents"),
@@ -742,7 +743,7 @@ mod tests {
             ("minus sixty six kilograms", "minus 66 kilograms"),
             (
                 "minus two thousand twelve kilo liters",
-                "minus 2012 kilo liters",
+                "minus 2,012 kilo liters",
             ),
             ("minus five dollars", "minus $5"),
             ("minus five percent", "minus 5%"),

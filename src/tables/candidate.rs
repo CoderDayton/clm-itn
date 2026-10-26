@@ -40,6 +40,17 @@ pub mod op {
         encode(EMIT, field, width, 0)
     }
 
+    /// No thousands commas.
+    pub const GROUP_NONE: u8 = 0;
+    /// Thousands commas from 1,000 up.
+    pub const GROUP: u8 = 1;
+    /// Thousands commas, except numbers that read as years (see `year_like`).
+    pub const GROUP_NOT_YEAR: u8 = 2;
+
+    pub const fn emit_grouped(field: u8, group: u8) -> u32 {
+        encode(EMIT, field, 0, group)
+    }
+
     pub const fn lit(id: u8) -> u32 {
         encode(LIT, id, 0, 0)
     }
@@ -198,11 +209,12 @@ impl CandidateTable {
         }
         let mut consumed = 0u32;
         for (i, &word) in c.ops[..count].iter().enumerate() {
-            let [opcode, a, b, _] = word.to_le_bytes();
+            let [opcode, a, b, group] = word.to_le_bytes();
             let field_ok = (a as usize) < FIELDS;
             match opcode {
                 op::FOLD | op::DIGITS if field_ok => consumed += u32::from(b),
-                op::EMIT | op::ORD | op::CHECK if field_ok => {}
+                op::EMIT if field_ok && group <= op::GROUP_NOT_YEAR => {}
+                op::ORD | op::CHECK if field_ok => {}
                 op::FOLD | op::DIGITS | op::EMIT | op::ORD | op::CHECK => {
                     return Err(CandidateError::BadField { op: i });
                 }
@@ -239,7 +251,7 @@ impl CandidateTable {
         let mut w = *pos;
         let mut t = 0usize;
         for &word in &c.ops[..count] {
-            let [opcode, a, b, _] = word.to_le_bytes();
+            let [opcode, a, b, group] = word.to_le_bytes();
             let f = a as usize % FIELDS;
             match opcode {
                 op::FOLD => {
@@ -258,7 +270,15 @@ impl CandidateTable {
                             .wrapping_add(u64::from(v));
                     }
                 }
-                op::EMIT => write_decimal(out, &mut w, fields[f], b as usize)?,
+                op::EMIT => {
+                    let v = fields[f];
+                    let year = group == op::GROUP_NOT_YEAR && year_like(v);
+                    if group != op::GROUP_NONE && v >= 1000 && !year {
+                        write_grouped(out, &mut w, v)?;
+                    } else {
+                        write_decimal(out, &mut w, v, b as usize)?;
+                    }
+                }
                 op::LIT => self.write_literal(a as usize, out, &mut w)?,
                 op::ORD => write(out, &mut w, ordinal_suffix(fields[f]))?,
                 op::RAW => write_joined(out, &mut w, take(raw, &mut t, a))?,
@@ -391,6 +411,34 @@ fn write_decimal(
     out[*w + zeros..end].copy_from_slice(digits);
     *w = end;
     Ok(())
+}
+
+/// "two thousand eight" is a year more often than a count.
+#[inline(always)]
+fn year_like(v: u64) -> bool {
+    (2000..=2099).contains(&v)
+}
+
+/// `v` with a comma between each group of three digits.
+#[inline(always)]
+fn write_grouped(out: &mut [u8], w: &mut usize, mut v: u64) -> Result<(), FormatError> {
+    let mut buf = [0u8; 26];
+    let mut i = buf.len();
+    let mut n = 0;
+    loop {
+        if n > 0 && n % 3 == 0 {
+            i -= 1;
+            buf[i] = b',';
+        }
+        i -= 1;
+        buf[i] = b'0' + (v % 10) as u8;
+        v /= 10;
+        n += 1;
+        if v == 0 {
+            break;
+        }
+    }
+    write(out, w, &buf[i..])
 }
 
 impl Default for CandidateTable {
@@ -600,6 +648,32 @@ mod tests {
         );
         assert_eq!(render(&t, CARDINAL, &[7]), "0007");
         assert_eq!(render(&t, CARDINAL, &[12345]), "12345");
+    }
+
+    #[test]
+    fn grouped_emit_adds_thousands_commas() {
+        let mut t = CandidateTable::new();
+        for (id, group) in [(1, op::GROUP), (2, op::GROUP_NOT_YEAR)] {
+            let ops = [op::fold(0, 1), op::emit_grouped(0, group)];
+            t.set(D, id, Candidate::new(1, &ops));
+            assert_eq!(t.validate(D, id), Ok(()));
+        }
+        assert_eq!(render(&t, 1, &[999]), "999");
+        assert_eq!(render(&t, 1, &[1000]), "1,000");
+        assert_eq!(render(&t, 1, &[2005]), "2,005");
+        assert_eq!(render(&t, 1, &[1_234_567_890]), "1,234,567,890");
+        assert_eq!(render(&t, 2, &[2005]), "2005");
+        assert_eq!(render(&t, 2, &[2000]), "2000");
+        assert_eq!(render(&t, 2, &[1500]), "1,500");
+        assert_eq!(render(&t, 2, &[1950]), "1,950");
+        assert_eq!(render(&t, 2, &[2100]), "2,100");
+        assert_eq!(render(&t, 2, &[1000]), "1,000");
+        t.set(
+            D,
+            3,
+            Candidate::new(1, &[op::fold(0, 1), op::emit_grouped(0, 3)]),
+        );
+        assert_eq!(t.validate(D, 3), Err(CandidateError::BadField { op: 1 }));
     }
 
     #[test]

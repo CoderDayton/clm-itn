@@ -22,6 +22,7 @@ pub struct Affixes {
     pub pair_only: [u64; 4],
     pub connectors: u16,
     pub binds: u16,
+    pub lead_skip: u16,
 }
 
 pub const MAX_SUFFIX: usize = 2;
@@ -63,7 +64,12 @@ pub fn segment(
         {
             i += 1;
         }
-        while start + 1 < i && has(affixes.connectors, u32::from(role(start))) {
+        while start + 1 < i
+            && has(
+                affixes.connectors | affixes.lead_skip,
+                u32::from(role(start)),
+            )
+        {
             start += 1;
         }
         let mut end = i;
@@ -74,7 +80,26 @@ pub fn segment(
         loop {
             let span = piece(classes, role_of, affixes, s, end);
             let inner = (s + 1..end - 1).filter(|&c| connector(c));
-            let cut = if inner.clone().next().is_none() || known(span.key) {
+            // "six feet two inches": two measures in one run split after the unit.
+            let whole = known(span.key);
+            let unit = (!whole)
+                .then(|| {
+                    (s + 1..end - 1).find(|&c| {
+                        has(affixes.suffix, u32::from(role(c)))
+                            && known(piece(classes, role_of, affixes, s, c + 1).key)
+                    })
+                })
+                .flatten();
+            if let Some(c) = unit {
+                out[count] = piece(classes, role_of, affixes, s, c + 1);
+                count += 1;
+                s = c + 1;
+                while s + 1 < end && connector(s) {
+                    s += 1;
+                }
+                continue;
+            }
+            let cut = if inner.clone().next().is_none() || whole {
                 None
             } else {
                 let mut cuts = inner.clone().rev();
@@ -174,6 +199,8 @@ mod tests {
     const HUNDRED: ClassId = 17;
     const ROLE_DOLLAR: Role = 11;
     const ROLE_MINUS: Role = 14;
+    const ROLE_AMPM: Role = 12;
+    const AM: ClassId = 18;
 
     fn roles() -> [Role; 256] {
         let mut r = [0u8; 256];
@@ -186,6 +213,7 @@ mod tests {
         r[DEGREE as usize] = ROLE_DOLLAR;
         r[AND as usize] = ROLE_AND;
         r[HUNDRED as usize] = ROLE_HUNDRED;
+        r[AM as usize] = ROLE_AMPM;
         r
     }
 
@@ -200,6 +228,7 @@ mod tests {
             pair_only: [1 << DEGREE, 0, 0, 0],
             connectors: 1 << ROLE_AND,
             binds: 1 << ROLE_HUNDRED,
+            lead_skip: 1 << ROLE_AMPM,
         };
         let n = segment(classes, &roles(), affixes, known, &mut out);
         out[..n].to_vec()
@@ -333,6 +362,27 @@ mod tests {
         let s = run_known(&[DIGIT, HUNDRED, AND, TENS], |k| k == 0x41);
         assert_eq!((s.len(), s[0].len), (1, 4));
         let s = run(&[DIGIT, HUNDRED, AND, WORD]);
+        assert_eq!((s.len(), s[0].len), (1, 3));
+    }
+
+    #[test]
+    fn a_leading_meridiem_leaves_the_span() {
+        let s = run(&[WORD, AM, DIGIT, HUNDRED]);
+        assert_eq!(s.len(), 1);
+        assert_eq!((s[0].start, s[0].len, s[0].left), (2, 2, AM));
+        let s = run(&[DIGIT, AM]);
+        assert_eq!((s[0].start, s[0].len), (0, 2));
+    }
+
+    #[test]
+    fn an_unknown_run_splits_after_an_inner_unit() {
+        let one_unit = 0x1;
+        let s = run_known(&[DIGIT, DOLLAR, DIGIT, DOLLAR], |k| k == one_unit);
+        assert_eq!(s.len(), 2);
+        assert_eq!((s[0].start, s[0].len, s[0].right), (0, 2, DOLLAR));
+        assert_eq!((s[1].start, s[1].len, s[1].left), (2, 2, DOLLAR));
+        let whole = shape_key(&[1, ROLE_DOLLAR, 1]);
+        let s = run_known(&[DIGIT, DOLLAR, DIGIT], |k| k == whole);
         assert_eq!((s.len(), s[0].len), (1, 3));
     }
 

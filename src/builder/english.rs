@@ -41,6 +41,8 @@ pub const DEGREE: ClassId = 36;
 pub const TEMP: ClassId = 37;
 /// A word that names a numbered item: "step five" -> "step 5".
 pub const LABEL: ClassId = 38;
+/// "dot" between numbers, as in an IP address: the numbers are identifiers.
+pub const DOT: ClassId = 39;
 pub const PER_UNITS: [ClassId; 5] = [UNIT, POWER, PREFIX, DEGREE, TEMP];
 pub const PAIR_ONLY: [ClassId; 2] = [DEGREE, TEMP];
 
@@ -79,6 +81,7 @@ pub const SRC_DATE: u8 = 16;
 pub const SUFFIX_ROLES: u16 = (1 << ROLE_CURRENCY) | (1 << ROLE_UNIT);
 pub const PREFIX_ROLES: u16 = 1 << ROLE_MINUS;
 pub const BIND_ROLES: u16 = (1 << ROLE_HUNDRED) | (1 << ROLE_SCALE) | (1 << ROLE_MSCALE);
+pub const LEAD_SKIP_ROLES: u16 = (1 << ROLE_AMPM) | (1 << ROLE_MER);
 pub const LITV_ROLES: [Role; 3] = [ROLE_CURRENCY, ROLE_AMPM, ROLE_UNIT];
 
 pub struct LiteralClassDef {
@@ -445,7 +448,8 @@ pub const CLASSES: &[ClassDef] = &[
     ClassDef {
         class: AT,
         role: 0,
-        words: &[("at", 0)],
+        // "it's five thirty" states the time now, like "at five thirty".
+        words: &[("at", 0), ("it's", 0), ("it’s", 0)],
     },
     ClassDef {
         class: OCLOCK,
@@ -512,6 +516,11 @@ pub const CLASSES: &[ClassDef] = &[
         class: PER,
         role: 0,
         words: &[("per", 0)],
+    },
+    ClassDef {
+        class: DOT,
+        role: 0,
+        words: &[("dot", 0)],
     },
 ];
 
@@ -894,6 +903,9 @@ fn times(s: &mut Sink) {
 
 pub fn year(y: u32, style: u64) -> Vec<&'static str> {
     let (hi, lo) = (y / 100, (y % 100) as usize);
+    if (2001..2010).contains(&y) && (style >> 12) % 10 >= 7 {
+        return vec!["twenty", "oh", UNITS[lo]];
+    }
     if (2000..2010).contains(&y) || (y >= 2010 && style % 10 < 4) {
         return cardinal(u64::from(y), (style >> 4) % 10 < 3);
     }
@@ -1056,6 +1068,9 @@ fn fraction_word(zeros: u32, i: usize) -> &'static str {
     }
 }
 
+const LONG_FRACTION_INTS: [Option<u64>; 4] = [None, Some(7), Some(18), Some(64)];
+const PAIR_FRACTIONS: [&[&str]; 3] = [&["twelve"], &["twenty"], &["eighty", "two"]];
+
 fn coverage_decimals() -> Vec<Vec<&'static str>> {
     let mut out = Vec::new();
     for len in 1..=4usize {
@@ -1066,6 +1081,67 @@ fn coverage_decimals() -> Vec<Vec<&'static str>> {
                 words.extend((0..len).map(|i| fraction_word(mask, i)));
                 out.push(words);
             }
+        }
+    }
+    for len in 5..=6usize {
+        for int in LONG_FRACTION_INTS {
+            let mut words = int.map_or(Vec::new(), |n| cardinal(n, false));
+            words.push("point");
+            words.extend((0..len).map(|i| UNITS[2 + i]));
+            out.push(words);
+        }
+    }
+    for int in COVERAGE_INTS.into_iter().flatten() {
+        for frac in PAIR_FRACTIONS {
+            let mut words = cardinal(int, false);
+            words.push("point");
+            words.extend(frac);
+            out.push(words);
+        }
+    }
+    out
+}
+
+const IDENTIFIER_COVERAGE_LENS: std::ops::RangeInclusive<usize> = 3..=8;
+
+/// Every digit and "oh" pattern, so no spoken digit string is missing a shape.
+fn coverage_identifiers() -> Vec<Vec<&'static str>> {
+    let mut out = Vec::new();
+    for len in IDENTIFIER_COVERAGE_LENS {
+        for mask in 0..1u32 << len {
+            out.push(
+                (0..len)
+                    .map(|i| if mask >> i & 1 == 1 { "oh" } else { "five" })
+                    .collect(),
+            );
+        }
+    }
+    out
+}
+
+fn coverage_dates() -> Vec<Vec<&'static str>> {
+    let years: [Vec<&'static str>; 14] = [
+        vec!["nineteen", "oh", "five"],
+        vec!["nineteen", "fifteen"],
+        vec!["nineteen", "twenty"],
+        vec!["nineteen", "forty", "five"],
+        vec!["nineteen", "hundred"],
+        vec!["twenty", "oh", "eight"],
+        vec!["twenty", "fifteen"],
+        vec!["twenty", "twenty"],
+        vec!["twenty", "twenty", "four"],
+        cardinal(2000, false),
+        cardinal(2005, false),
+        cardinal(2005, true),
+        cardinal(2015, false),
+        cardinal(2024, false),
+    ];
+    let mut out = Vec::new();
+    for day in [1, 29] {
+        for y in &years {
+            let mut words = ordinal(day).unwrap_or_default();
+            words.extend(y);
+            out.push(words);
         }
     }
     out
@@ -1099,15 +1175,39 @@ fn coverage_scaled() -> Vec<Vec<&'static str>> {
     out
 }
 
+/// "ten dollars and five cents": every dollar-word shape with one- and
+/// two-word cents, which random sampling can miss.
+fn coverage_money() -> Vec<Vec<&'static str>> {
+    let mut out = Vec::new();
+    for dollars in [1, 5, 10, 15, 20, 25, 100] {
+        for cents in [1, 5, 15, 50, 55] {
+            for and in [true, false] {
+                let mut words = cardinal(dollars, false);
+                words.push(if dollars == 1 { "dollar" } else { "dollars" });
+                if and {
+                    words.push("and");
+                }
+                words.extend(cardinal(cents, false));
+                words.push(if cents == 1 { "cent" } else { "cents" });
+                out.push(words);
+            }
+        }
+    }
+    out
+}
+
 fn coverage(s: &mut Sink) {
-    for (kind, list) in [
-        ("decimal", coverage_decimals()),
-        ("cardinal", coverage_cardinals()),
-        ("scaled", coverage_scaled()),
+    for (kind, src, list) in [
+        ("money", SRC_CARDINAL, coverage_money()),
+        ("decimal", SRC_CARDINAL, coverage_decimals()),
+        ("cardinal", SRC_CARDINAL, coverage_cardinals()),
+        ("scaled", SRC_CARDINAL, coverage_scaled()),
+        ("identifier", SRC_IDENTIFIER, coverage_identifiers()),
+        ("date", SRC_DATE, coverage_dates()),
     ] {
         let w = COVERAGE_WEIGHT / list.len() as f64;
         for words in list {
-            s.push(words, SRC_CARDINAL, w, kind);
+            s.push(words, src, w, kind);
         }
     }
 }
