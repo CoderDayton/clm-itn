@@ -28,9 +28,8 @@ lto = false
 
 [profile.release]
 opt-level = 3
-lto = "thin"
-codegen-units = 1
-panic = "abort"
+lto = "fat"
+codegen-units = 16
 
 [profile.benchmark]
 inherits = "release"
