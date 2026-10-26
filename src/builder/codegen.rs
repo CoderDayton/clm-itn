@@ -77,6 +77,16 @@ pub fn to_rust(t: &Tables, name: &str) -> String {
             sparse_hex(&bits[..])
         );
     }
+    let _ = writeln!(
+        s,
+        "    class_settings: crate::tables::Aligned({}),",
+        sparse("u16", &t.class_settings[..])
+    );
+    let _ = writeln!(
+        s,
+        "    domain_settings: crate::tables::Aligned({:?}),",
+        &t.domain_settings[..]
+    );
     let _ = writeln!(s, "    suffix_roles: {:#06x},", t.suffix_roles);
     let _ = writeln!(s, "    prefix_roles: {:#06x},", t.prefix_roles);
     let _ = writeln!(s, "    connector_roles: {:#06x},", t.connector_roles);

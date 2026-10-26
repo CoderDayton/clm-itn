@@ -1,6 +1,6 @@
 # Performance
 
-Measured latency and allocation counts for `Engine::format` and `format_line`, how they were taken, what each call costs, and what cannot be improved.
+Measured latency and allocation counts for `Normalizer::format` and `format_line`, how they were taken, what each call costs, and what cannot be improved.
 
 - [Verdict](#verdict)
 - [How the numbers were taken](#how-the-numbers-were-taken)
@@ -10,7 +10,7 @@ Measured latency and allocation counts for `Engine::format` and `format_line`, h
 
 ## Verdict
 
-**`Engine::format` meets its 1.00 µs p99 budget with about 4× headroom: p99 257–259 ns over 10⁶ calls in each of 3 runs, 0 allocations, 0 errors. Every tier is under its own budget. `format_line`, which handles whole lines, has p99 947 ns on the dictation gold set. It allocates and is not gated, and 6 of its 359 lines go over 1 µs at p99.**
+**`Normalizer::format` meets its 1.00 µs p99 budget with about 4× headroom: p99 257–259 ns over 10⁶ calls in each of 3 runs, 0 allocations, 0 errors. Every tier is under its own budget. `format_line`, which handles whole lines, has p99 947 ns on the dictation gold set. It allocates and is not gated, and 6 of its 359 lines go over 1 µs at p99.**
 
 ## How the numbers were taken
 
@@ -31,7 +31,7 @@ On hybrid CPUs, pin to a performance core.
 
 ## Results
 
-### `Engine::format`, end to end
+### `Normalizer::format`, end to end
 
 | Run | p50 | p99 | p99.9 | max | Allocations |
 |---|---|---|---|---|---|

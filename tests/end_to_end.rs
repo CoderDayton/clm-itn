@@ -1,10 +1,17 @@
-use clm_itn::{Engine, format_line};
+use clm_itn::{Normalizer, Setting, format_line};
 
-fn engine() -> Engine<'static> {
-    Engine::english()
+/// AP style: lone single numbers stay words.
+fn engine() -> Normalizer<'static> {
+    Normalizer::english().without(Setting::SingleDigits)
 }
 
-fn run(engine: &Engine, text: &str) -> String {
+fn line(engine: &Normalizer, text: &str) -> String {
+    let mut out = String::new();
+    format_line(engine, text, &mut out);
+    out
+}
+
+fn run(engine: &Normalizer, text: &str) -> String {
     let tokens: Vec<&[u8]> = text.split(' ').map(str::as_bytes).collect();
     let mut out = [0u8; 256];
     let done = engine.format(&tokens, &mut out).expect("format");
@@ -151,9 +158,10 @@ fn format_line_keeps_ambiguous_runs_as_words() {
         ("the twenty third", "the 23rd"),
         (
             "born on july fourth nineteen ninety",
-            "born on July 4, 1990",
+            "born on July 4th, 1990",
         ),
-        ("on march third", "on March 3"),
+        ("on march third", "on March 3rd"),
+        ("january eighth", "January 8th"),
         ("fifty percent off", "50% off"),
         ("a fee of point five percent", "a fee of 0.5%"),
         ("it is point five", "it is 0.5"),
@@ -172,7 +180,12 @@ fn format_line_keeps_ambiguous_runs_as_words() {
         ("it costs five euros", "it costs 5 euros"),
         ("one euro", "1 euro"),
         ("five dollars", "$5"),
-        ("ten yen", "¥10"),
+        ("ten yen", "10 yen"),
+        ("five hundred won", "500 won"),
+        ("five hundred rupees", "500 rupees"),
+        ("minus five degrees", "minus 5 degrees"),
+        ("two kilo liters", "2 kilo liters"),
+        ("five square meters", "5 square meters"),
         ("the budget is ten thousand dollars", "the budget is $10000"),
         (
             "we raised two hundred fifty thousand dollars",
@@ -200,9 +213,9 @@ fn format_line_keeps_ambiguous_runs_as_words() {
 }
 
 #[test]
-fn single_digits_style_writes_lone_numbers_as_digits_and_keeps_ordinals() {
+fn single_digits_writes_lone_numbers_as_digits_and_keeps_ordinals() {
     let ap = engine();
-    let digits = Engine::english().with_style(clm_itn::Style::SingleDigits);
+    let digits = Normalizer::english();
     let cases = [
         ("like eight years", "like eight years", "like 8 years"),
         (
@@ -235,6 +248,54 @@ fn single_digits_style_writes_lone_numbers_as_digits_and_keeps_ordinals() {
             format_line(e, input, &mut got);
             assert_eq!(got, want, "{input:?}");
         }
+    }
+}
+
+#[test]
+fn single_digits_keeps_one_to_nine_as_words_when_not_a_count() {
+    let digits = Normalizer::english();
+    let words = [
+        "no one knows",
+        "which one do you want",
+        "this one is better",
+        "that's the one i want",
+        "on the one hand it's cheap",
+        "one of them is broken",
+        "one day we will go",
+        "Oh, one more thing.",
+        "check them one by one",
+        "it's one thing to say it",
+        "one at a time please",
+        "one way or another",
+        "it's a one way street",
+        "give me one sec",
+        "they help one another",
+        "she's one in a million",
+        "it arrived in one piece",
+        "two heads are better than one",
+        "the two of them left",
+        "two of us can go",
+        "the three of us went",
+        "i'm on cloud nine",
+        "six of one half a dozen of the other",
+        "two thirds of voters agree",
+        "it's three quarters full",
+    ];
+    for input in words {
+        assert_eq!(line(&digits, input), input, "{input:?}");
+    }
+    let counts = [
+        ("one of five", "1 of 5"),
+        ("one in five people", "1 in 5 people"),
+        ("in one day", "in 1 day"),
+        ("one in the morning", "1 in the morning"),
+        ("the one hundred people", "the 100 people"),
+        ("i have one question", "i have 1 question"),
+        ("twenty one of them", "21 of them"),
+        ("do one and two", "do 1 and 2"),
+    ];
+    for (input, want) in counts {
+        assert_eq!(line(&digits, input), want, "{input:?}");
     }
 }
 
@@ -282,6 +343,37 @@ fn a_window_cut_keeps_the_word_before_a_number() {
 }
 
 #[test]
+fn a_relative_time_stays_as_spoken() {
+    let ap = engine();
+    let digits = Normalizer::english();
+    let same = [
+        "it is ten to four",
+        "meet me at twenty five to six.",
+        "it's ten past four",
+        "ten after four",
+        "it's half past four",
+        "at a quarter to five, we left",
+        "it is five to four",
+    ];
+    let ranges = [
+        ("pages ten to twenty", "pages 10 to 20"),
+        ("from ten to twelve people", "from 10 to 12 people"),
+    ];
+    for e in [&ap, &digits] {
+        for input in same {
+            let mut got = String::new();
+            format_line(e, input, &mut got);
+            assert_eq!(got, input, "{e:?}");
+        }
+        for (input, want) in ranges {
+            let mut got = String::new();
+            format_line(e, input, &mut got);
+            assert_eq!(got, want, "{e:?}");
+        }
+    }
+}
+
+#[test]
 fn an_ordinal_after_code_stays_a_word() {
     let engine = engine();
     for (input, want) in [
@@ -291,5 +383,73 @@ fn an_ordinal_after_code_stays_a_word() {
         let mut got = String::new();
         format_line(&engine, input, &mut got);
         assert_eq!(got, want, "{input:?}");
+    }
+}
+
+#[test]
+fn each_setting_switches_off_only_its_own_rewrite() {
+    use Setting::*;
+    let all = Normalizer::english();
+    let cases = [
+        (
+            SingleDigits,
+            "like eight years",
+            "like 8 years",
+            "like eight years",
+        ),
+        (Percent, "fifty percent off", "50% off", "50 percent off"),
+        (
+            Currency,
+            "it costs five dollars",
+            "it costs $5",
+            "it costs 5 dollars",
+        ),
+        (
+            Currency,
+            "four dollars and fifty cents",
+            "$4.50",
+            "4 dollars and 50 cents",
+        ),
+        (
+            Dates,
+            "born on july fourth nineteen ninety",
+            "born on July 4th, 1990",
+            "born on july 4th 1990",
+        ),
+        (
+            Dates,
+            "in july two thousand twelve",
+            "in July 2012",
+            "in july 2012",
+        ),
+        (
+            Letters,
+            "at seven a m e s t",
+            "at 7 am EST",
+            "at 7 a m e s t",
+        ),
+        (
+            Letters,
+            "the meeting is at three p m",
+            "the meeting is at 3 pm",
+            "the meeting is at 3 p m",
+        ),
+        (
+            Noon,
+            "the deadline is twelve noon",
+            "the deadline is noon",
+            "the deadline is 12 noon",
+        ),
+        (Oclock, "at five oclock", "at 5 o'clock", "at 5 oclock"),
+        (
+            Temperature,
+            "seventy two degrees fahrenheit",
+            "72 degrees Fahrenheit",
+            "72 degrees fahrenheit",
+        ),
+    ];
+    for (setting, input, on, off) in cases {
+        assert_eq!(line(&all, input), on, "{setting:?} on");
+        assert_eq!(line(&all.without(setting), input), off, "{setting:?} off");
     }
 }

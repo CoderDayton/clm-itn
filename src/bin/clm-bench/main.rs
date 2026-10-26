@@ -10,7 +10,7 @@ mod tiers;
 use std::hint::black_box;
 use std::process::ExitCode;
 
-use clm_itn::engine::Engine;
+use clm_itn::engine::Normalizer;
 use clm_itn::format_line;
 use clm_itn::types::MAX_TOKENS;
 
@@ -36,7 +36,7 @@ fn main() -> ExitCode {
         return run_lines(path, args.passes, overhead, ns_per_tick);
     }
 
-    let engine = Engine::new(clm_itn::english());
+    let engine = Normalizer::new(clm_itn::english());
     let corpus = corpus::Corpus::generate(args.n, args.seed);
     let n = corpus.len();
     let mut ticks = vec![0u32; n];
@@ -112,7 +112,7 @@ fn run_lines(path: &str, passes: usize, overhead: u64, ns_per_tick: f64) -> Exit
         eprintln!("no lines in {path}");
         return ExitCode::FAILURE;
     }
-    let engine = Engine::new(clm_itn::english());
+    let engine = Normalizer::new(clm_itn::english());
     println!("lines file:     {path}");
     println!("lines:          {n} x {passes} passes (format_line, one reused String)");
 
@@ -156,7 +156,7 @@ fn run_lines(path: &str, passes: usize, overhead: u64, ns_per_tick: f64) -> Exit
     ExitCode::SUCCESS
 }
 
-fn line_allocations(engine: &Engine, spoken: &[&str], reuse: bool) -> Vec<u64> {
+fn line_allocations(engine: &Normalizer, spoken: &[&str], reuse: bool) -> Vec<u64> {
     let mut out = String::new();
     if reuse {
         for s in spoken {
@@ -179,7 +179,7 @@ fn line_allocations(engine: &Engine, spoken: &[&str], reuse: bool) -> Vec<u64> {
         .collect()
 }
 
-fn time_lines(engine: &Engine, spoken: &[&str], passes: usize, overhead: u64) -> Vec<u32> {
+fn time_lines(engine: &Normalizer, spoken: &[&str], passes: usize, overhead: u64) -> Vec<u32> {
     let mut out = String::new();
     let mut ticks = vec![0u32; spoken.len() * passes];
     for pass in ticks.chunks_mut(spoken.len()) {
@@ -195,7 +195,7 @@ fn time_lines(engine: &Engine, spoken: &[&str], passes: usize, overhead: u64) ->
     ticks
 }
 
-fn print_tiers(engine: &Engine, corpus: &corpus::Corpus, overhead: u64, ns_per_tick: f64) {
+fn print_tiers(engine: &Normalizer, corpus: &corpus::Corpus, overhead: u64, ns_per_tick: f64) {
     let src = tiers::source(engine);
     let c = tiers::collect(&src, corpus, overhead);
     let stats = tiers::stage_stats(c.stages.each_ref().map(Vec::as_slice), ns_per_tick);
@@ -228,7 +228,7 @@ fn print_header(ns_per_tick: f64, overhead: u64, gate: bool) {
     }
 }
 
-fn print_samples(engine: &Engine, corpus: &corpus::Corpus) {
+fn print_samples(engine: &Normalizer, corpus: &corpus::Corpus) {
     let mut buf: [&[u8]; MAX_TOKENS] = [&[]; MAX_TOKENS];
     let mut out = [0u8; OUT_BYTES];
     let mut seen = Vec::new();

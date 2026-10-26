@@ -5,9 +5,9 @@ mod spell;
 
 use std::process::ExitCode;
 
+use clm_itn::Normalizer;
 use clm_itn::engine::window::format_line;
 use clm_itn::types::ROLE_NONE;
-use clm_itn::{Engine, Style};
 
 use eval::{WordRole, accuracy, is_partial};
 
@@ -27,7 +27,7 @@ fn number_word(t: &clm_itn::Tables, w: &str) -> bool {
     word_role(t, w) == WordRole::Number
 }
 
-const USAGE: &str = "usage: clm-eval --pairs <pairgen split file> | --lines <spoken TAB written [TAB tag] file> [--tag <t>] [--all-failures] [--single-digits] | --spell <id TAB raw TAB final file>";
+const USAGE: &str = "usage: clm-eval --pairs <pairgen split file> | --lines <spoken TAB written [TAB tag] file> [--tag <t>] [--all-failures] [--no-<setting>]... | --spell <id TAB raw TAB final file>";
 
 fn main() -> ExitCode {
     match pairs::parse_args(std::env::args().skip(1)) {
@@ -51,12 +51,10 @@ fn run_lines(opts: &pairs::LinesOpts) -> ExitCode {
         }
     };
     let (cases, malformed) = lines::parse_lines(&text);
-    let style = if opts.single_digits {
-        Style::SingleDigits
-    } else {
-        Style::Ap
-    };
-    let engine = Engine::english().with_style(style);
+    let engine = opts
+        .off
+        .iter()
+        .fold(Normalizer::english(), |e, &s| e.without(s));
     let mut tally = lines::LineTally {
         all_failures: opts.all_failures,
         ..lines::LineTally::default()
@@ -126,7 +124,7 @@ fn run_pairs(path: &str, isolated: bool) -> ExitCode {
     };
     let tables = clm_itn::english();
     let (records, malformed) = pairs::parse_records(&text, |w| number_word(tables, w));
-    let engine = Engine::new(tables);
+    let engine = Normalizer::new(tables);
     let mut tally = pairs::PairTally::default();
     let mut sentence = String::new();
     let mut got = String::new();
@@ -262,7 +260,7 @@ mod tests {
     #[test]
     fn affix_roles_are_not_number_words() {
         let t = clm_itn::english();
-        for w in ["percent", "dollars", "minus"] {
+        for w in ["percent", "dollars"] {
             assert_eq!(word_role(t, w), WordRole::Affix, "{w}");
             assert!(!number_word(t, w), "{w}");
         }

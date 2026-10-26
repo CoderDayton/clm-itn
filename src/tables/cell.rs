@@ -21,11 +21,6 @@ pub fn unpack(word: u64) -> ([CandidateId; 4], [u8; 4]) {
     (ranks, streaks)
 }
 
-#[inline(always)]
-pub fn rank0(word: u64) -> CandidateId {
-    (word & 0xFF) as u8
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -34,7 +29,6 @@ mod tests {
     fn pack_and_unpack_round_trip() {
         let word = pack([1, 2, 3, 4], [5, 6, 7, 8]);
         assert_eq!(unpack(word), ([1, 2, 3, 4], [5, 6, 7, 8]));
-        assert_eq!(rank0(word), 1);
     }
 
     #[test]

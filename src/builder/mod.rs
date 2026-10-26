@@ -15,9 +15,9 @@ use crate::tables::{MAX_CANONICAL, Tables};
 use crate::types::{
     CANDIDATE_NONE, CLASS_BOUNDARY, CLASS_UNKNOWN, CandidateId, CanonicalId, CellIndex, ClassId,
     DOMAIN_CARDINAL, DOMAIN_CENTS, DOMAIN_COUNT, DOMAIN_IDENTIFIER, DOMAIN_MEASURE,
-    DOMAIN_MEASURE_POWER, DOMAIN_MEASURE_PREFIX, DOMAIN_MONEY, DOMAIN_NEGATIVE, DOMAIN_PERCENT,
-    DOMAIN_TIME, DomainId, MAX_TOKENS, ROLE_NONE, Role, SHAPE_COUNT, ShapeId, cell_domain,
-    cell_index, cell_shape,
+    DOMAIN_MEASURE_POWER, DOMAIN_MEASURE_PREFIX, DOMAIN_MONEY, DOMAIN_PERCENT, DOMAIN_TIME,
+    DomainId, MAX_TOKENS, ROLE_NONE, Role, SHAPE_COUNT, ShapeId, cell_domain, cell_index,
+    cell_shape,
 };
 use learned::{ClassRef, Learned};
 
@@ -76,11 +76,10 @@ pub struct BuildStats {
 
 pub const DOMAINS: usize = 6;
 
-const AFFIX_DOMAINS: [(DomainId, u8); 7] = [
+const AFFIX_DOMAINS: [(DomainId, u8); 6] = [
     (DOMAIN_MONEY, 1),
     (DOMAIN_CENTS, 1),
     (DOMAIN_PERCENT, 1),
-    (DOMAIN_NEGATIVE, 1),
     (DOMAIN_MEASURE, 1),
     (DOMAIN_MEASURE_POWER, 2),
     (DOMAIN_MEASURE_PREFIX, 2),
@@ -104,7 +103,7 @@ fn core_roles(roles: &[Role]) -> &[Role] {
 }
 
 fn affix_route(left: ClassId, right: ClassId) -> Option<u8> {
-    use english::{CENT, DOLLAR, MINUS, PERCENT, POWER, PREFIX, UNIT};
+    use english::{CENT, DOLLAR, PERCENT, POWER, PREFIX, UNIT};
     let domain = match right {
         DOLLAR => DOMAIN_MONEY,
         CENT => DOMAIN_CENTS,
@@ -112,7 +111,6 @@ fn affix_route(left: ClassId, right: ClassId) -> Option<u8> {
         UNIT => DOMAIN_MEASURE,
         POWER => DOMAIN_MEASURE_POWER,
         PREFIX | english::DEGREE => DOMAIN_MEASURE_PREFIX,
-        _ if left == MINUS => DOMAIN_NEGATIVE,
         _ if left == english::MONTH => english::DOMAIN_MONTH_DATE,
         _ if left == english::MAY => english::DOMAIN_MAY_DATE,
         _ => return None,
@@ -387,6 +385,7 @@ pub fn build(learned: &Learned) -> Result<Built, BuildError> {
     mark(&mut t.per_stop, &[english::PER]);
     mark(&mut t.per_units, &english::PER_UNITS);
     mark(&mut t.pair_only, &english::PAIR_ONLY);
+    mark_settings(&mut t);
     let (keys, lists, affix_cells, affix_dropped) =
         fill_cells(&mut t, &mut pool, &ranked, learned)?;
 
@@ -427,6 +426,19 @@ pub fn build(learned: &Learned) -> Result<Built, BuildError> {
     b.tables.candidates = *pool.table;
     validate(&b.tables)?;
     Ok(b)
+}
+
+fn mark_settings(t: &mut Tables) {
+    for (setting, classes) in english::SETTING_CLASSES {
+        for &c in classes {
+            t.class_settings[c as usize] |= setting.bit();
+        }
+    }
+    for (setting, domains) in english::SETTING_DOMAINS {
+        for &d in domains {
+            t.domain_settings[d as usize] |= setting.bit();
+        }
+    }
 }
 
 impl Built {
@@ -675,7 +687,6 @@ struct Pool {
     colon: u8,
     dot: u8,
     space: u8,
-    minus: u8,
     oclock: u8,
     on_the_hour: u8,
     zero_dot: u8,
@@ -689,12 +700,11 @@ impl Pool {
         let mut table = Box::new(CandidateTable::new());
         let mut lit = |text: &[u8]| table.add_literal(text).map_err(BuildError::Literal);
         let (colon, dot, space) = (lit(b":")?, lit(b".")?, lit(b" ")?);
-        let minus = lit(b"-")?;
         let oclock = lit(b" o'clock")?;
         let on_the_hour = lit(b":00")?;
         let zero_dot = lit(b"0.")?;
         let (comma, may) = (lit(b", ")?, lit(b"May ")?);
-        let mut by_text: HashMap<&str, u8> = HashMap::from([("-", minus)]);
+        let mut by_text: HashMap<&str, u8> = HashMap::new();
         let mut word_literal = HashMap::new();
         for class in english::LITERAL_CLASSES {
             for &(word, text) in class.words {
@@ -717,7 +727,6 @@ impl Pool {
             colon,
             dot,
             space,
-            minus,
             oclock,
             on_the_hour,
             zero_dot,
@@ -782,16 +791,13 @@ impl Pool {
         if roles == [english::ROLE_DIGIT] {
             list.push(self.raw(1)?);
         }
-        let variants = [(0, true), (2, false), (2, true)];
-        for (width, dotted) in variants {
-            if let Some(ops) = self.clock(roles, width, dotted) {
-                list.push(self.intern(roles.len(), &ops)?);
-            }
+        if let Some(ops) = self.clock(roles, 2) {
+            list.push(self.intern(roles.len(), &ops)?);
         }
         Ok(list)
     }
 
-    fn clock(&self, roles: &[Role], hour_width: u8, dotted: bool) -> Option<Vec<u32>> {
+    fn clock(&self, roles: &[Role], hour_width: u8) -> Option<Vec<u32>> {
         use english::{ROLE_AMPM, ROLE_MER};
         let n = roles.len();
         if n >= 2 && roles[n - 1] == ROLE_AMPM {
@@ -803,14 +809,10 @@ impl Pool {
             if n > 2 {
                 ops.extend([op::lit(self.colon), op::emit(1, 2)]);
             }
-            if dotted {
-                ops.extend([op::litv((n - 1) as u8), op::skip(1)]);
-            } else {
-                ops.extend([op::lit(self.space), op::raw(1)]);
-            }
+            ops.extend([op::lit(self.space), op::raw(1)]);
             return Some(ops);
         }
-        if n < 2 || roles[n - 1] != ROLE_MER || dotted {
+        if n < 2 || roles[n - 1] != ROLE_MER {
             return None;
         }
         let mer = if roles[n - 2] == ROLE_MER { 2 } else { 1 };
@@ -836,14 +838,7 @@ impl Pool {
     }
 
     fn reading(&self, roles: &[Role]) -> Vec<u32> {
-        use english::ROLE_MINUS;
-        let n = roles.len();
-        if let Some(ops) = self.clock(roles, 0, false) {
-            return ops;
-        }
-        if n >= 2 && roles[0] == ROLE_MINUS {
-            let mut ops = vec![op::skip(1), op::lit(self.minus)];
-            ops.extend(self.reading(&roles[1..]));
+        if let Some(ops) = self.clock(roles, 0) {
             return ops;
         }
         self.dollars_and_cents(roles)
@@ -980,43 +975,20 @@ impl Pool {
                 Some(ops) => [&ops[..], &[op::skip(1)]].concat(),
                 None => [&self.amount(roles)[..], &[op::lit(self.space), op::raw(1)]].concat(),
             },
-            DOMAIN_NEGATIVE => [
-                &[op::skip(1), op::lit(self.minus)][..],
-                &self.reading(roles),
-            ]
-            .concat(),
-            DOMAIN_MEASURE_POWER => {
-                let symbol = [
-                    &self.amount(roles)[..],
-                    &[
-                        op::lit(self.space),
-                        op::litv(affix + 1),
-                        op::litv(affix),
-                        op::skip(2),
-                    ],
-                ]
-                .concat();
-                return self.spelled_first(n, 2, roles, &symbol);
-            }
+            DOMAIN_MEASURE_POWER => return self.spelled(n, 2, roles),
             DOMAIN_MEASURE_PREFIX => [
                 &self.amount(roles)[..],
                 &[
                     op::lit(self.space),
                     op::litv(affix),
+                    op::lit(self.space),
                     op::litv(affix + 1),
                     op::skip(2),
                 ],
             ]
             .concat(),
             DOMAIN_PERCENT => [&self.amount(roles)[..], &[op::litv(affix), op::skip(1)]].concat(),
-            DOMAIN_MEASURE => {
-                let symbol = [
-                    &self.amount(roles)[..],
-                    &[op::lit(self.space), op::litv(affix), op::skip(1)],
-                ]
-                .concat();
-                return self.spelled_first(n, 1, roles, &symbol);
-            }
+            DOMAIN_MEASURE => return self.spelled(n, 1, roles),
             _ => [
                 &self.amount(roles)[..],
                 &[op::lit(self.space), op::litv(affix), op::skip(1)],
@@ -1027,12 +999,11 @@ impl Pool {
         Ok(vec![self.intern(len, &ops)?, self.raw(len)?])
     }
 
-    fn spelled_first(
+    fn spelled(
         &mut self,
         n: usize,
         unit_len: usize,
         roles: &[Role],
-        symbol: &[u32],
     ) -> Result<Vec<ProgramId>, BuildError> {
         let len = n + unit_len;
         let spelled = [
@@ -1040,11 +1011,7 @@ impl Pool {
             &[op::lit(self.space), op::raw(unit_len as u8)],
         ]
         .concat();
-        Ok(vec![
-            self.intern(len, &spelled)?,
-            self.intern(len, symbol)?,
-            self.raw(len)?,
-        ])
+        Ok(vec![self.intern(len, &spelled)?, self.raw(len)?])
     }
 
     fn reorder(&self, span_len: usize, list: &[ProgramId], cell: &learned::Cell) -> Vec<ProgramId> {
@@ -1083,7 +1050,7 @@ impl Pool {
         let mut list = Vec::with_capacity(3);
         if let Some(k) = roles.iter().rposition(|&r| r == english::ROLE_ORDINAL) {
             let rest = &roles[k + 1..];
-            let mut ops = vec![op::fold(0, (k + 1) as u8), op::emit(0, 0)];
+            let mut ops = vec![op::fold(0, (k + 1) as u8), op::emit(0, 0), op::ord(0)];
             if !rest.is_empty() {
                 ops.push(op::lit(self.space));
                 match pair_split(rest) {
@@ -1109,7 +1076,7 @@ impl Pool {
         let k = roles.iter().position(|&r| r == english::ROLE_ORDINAL);
         if let Some(k) = k.filter(|&k| k <= 1) {
             let rest = &roles[k + 1..];
-            let mut ops = vec![op::fold(0, (k + 1) as u8), op::emit(0, 0)];
+            let mut ops = vec![op::fold(0, (k + 1) as u8), op::emit(0, 0), op::ord(0)];
             if !rest.is_empty() {
                 let split = pair_split(rest);
                 let sep = if comma && split.is_some() {
@@ -1282,7 +1249,7 @@ fn check_candidate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DOMAIN_DATE, DOMAIN_ORDINAL, DOMAIN_PLAIN, SHAPE_UNKNOWN};
+    use crate::types::{DOMAIN_DATE, DOMAIN_ORDINAL, DOMAIN_PLAIN, SHAPE_UNKNOWN, Setting};
 
     fn shape_id(t: &Tables, phrase: &str) -> ShapeId {
         let words: Vec<&[u8]> = phrase.split(' ').map(str::as_bytes).collect();
@@ -1470,15 +1437,15 @@ mod tests {
     }
 
     #[test]
-    fn single_token_meridiem_is_written_as_is_then_dotted() {
+    fn single_token_meridiem_is_written_as_is_then_zero_padded() {
         let t = build_english().expect("build");
-        for (phrase, as_is, dotted) in [
-            ("five thirty pm", "5:30 pm", "5:30 p.m."),
-            ("five pm", "5 pm", "5 p.m."),
-            ("eleven fifty five am", "11:55 am", "11:55 a.m."),
+        for (phrase, as_is, padded) in [
+            ("five thirty pm", "5:30 pm", "05:30 pm"),
+            ("five pm", "5 pm", "05 pm"),
+            ("eleven fifty five am", "11:55 am", "11:55 am"),
         ] {
             assert_eq!(render_reading_at(&t, phrase, DOMAIN_CARDINAL, 0), as_is);
-            assert_eq!(render_reading_at(&t, phrase, DOMAIN_CARDINAL, 1), dotted);
+            assert_eq!(render_reading_at(&t, phrase, DOMAIN_CARDINAL, 1), padded);
         }
     }
 
@@ -1542,7 +1509,7 @@ mod tests {
                 assert_eq!(&c.ops[..c.op_count as usize], &ops[..], "cell {cell:#x}");
             }
         }
-        let engine = crate::engine::Engine::new(&b.tables);
+        let engine = crate::engine::Normalizer::new(&b.tables);
         let mut line = String::new();
         crate::engine::window::format_line(&engine, "point two meters", &mut line);
         assert_eq!(line, "0.2 meters");
@@ -1551,7 +1518,7 @@ mod tests {
     #[test]
     fn lone_zero_word_stays_words_unless_an_affix_follows() {
         let b = build(&Learned::default()).expect("build");
-        let engine = crate::engine::Engine::new(&b.tables);
+        let engine = crate::engine::Normalizer::new(&b.tables).without(Setting::SingleDigits);
         for (text, want) in [
             ("o lord", "o lord"),
             ("oh dear", "oh dear"),
@@ -1576,7 +1543,7 @@ mod tests {
             let c = b.tables.lexicon.lookup(w.as_bytes()).canonical as usize;
             b.tables.words_first[c / 64] |= 1 << (c % 64);
         }
-        let engine = crate::engine::Engine::new(&b.tables);
+        let engine = crate::engine::Normalizer::new(&b.tables).without(Setting::SingleDigits);
         for (text, want) in [
             ("this one only", "this one only"),
             ("first we saved", "first we saved"),
@@ -1606,26 +1573,26 @@ mod tests {
     #[test]
     fn month_dates_capitalize_the_month_and_comma_only_before_a_year() {
         let t = build_english().expect("build");
-        let engine = crate::engine::Engine::new(&t);
+        let engine = crate::engine::Normalizer::new(&t).without(Setting::SingleDigits);
         for (text, want) in [
-            ("january eighth eighteen fifteen", "January 8, 1815"),
+            ("january eighth eighteen fifteen", "January 8th, 1815"),
             ("july two thousand twelve", "July 2012"),
             ("june fifth twenty people", "june fifth twenty people"),
-            ("on june fifth", "on June 5"),
-            ("he died may eleventh", "he died May 11"),
+            ("on june fifth", "on June 5th"),
+            ("he died may eleventh", "he died May 11th"),
             ("may nineteen ninety", "May 1990"),
             ("you may one day", "you may 1 day"),
             ("you may two days", "you may 2 days"),
             ("may five hundred", "may 500"),
             ("you may go", "you may go"),
             ("in march", "in march"),
-            ("sixty seven january seventeenth", "67 January 17"),
+            ("sixty seven january seventeenth", "67 January 17th"),
             (
                 "the fifth april seventeen seventy one",
                 "the 5th April 1771",
             ),
             ("five minus three", "five minus three"),
-            ("minus five", "-5"),
+            ("minus fifty", "minus 50"),
         ] {
             let mut line = String::new();
             crate::engine::window::format_line(&engine, text, &mut line);
@@ -1636,7 +1603,7 @@ mod tests {
     #[test]
     fn and_leaves_a_span_it_ends_and_splits_a_run_with_no_shape() {
         let t = build_english().expect("build");
-        let engine = crate::engine::Engine::new(&t);
+        let engine = crate::engine::Normalizer::new(&t);
         for (text, want) in [
             ("in eighteen ninety two and then", "in 1892 and then"),
             (
@@ -1672,7 +1639,7 @@ mod tests {
     #[test]
     fn parts_that_break_place_value_stay_words_and_years_need_a_ten_to_twenty_nine_lead() {
         let t = build_english().expect("build");
-        let engine = crate::engine::Engine::new(&t);
+        let engine = crate::engine::Normalizer::new(&t);
         for (text, want) in [
             ("it was fifty fifty", "it was fifty fifty"),
             ("one fifth of it", "one fifth of it"),
@@ -1692,7 +1659,7 @@ mod tests {
             ("two thousand five", "2005"),
             ("five thousand twenty", "5020"),
             ("at five thirty", "at 5:30"),
-            ("january eighth eighteen fifteen", "January 8, 1815"),
+            ("january eighth eighteen fifteen", "January 8th, 1815"),
         ] {
             let mut line = String::new();
             crate::engine::window::format_line(&engine, text, &mut line);
@@ -1703,7 +1670,7 @@ mod tests {
     #[test]
     fn units_before_per_keep_their_words_and_temperatures_take_two_tokens() {
         let t = build_english().expect("build");
-        let engine = crate::engine::Engine::new(&t);
+        let engine = crate::engine::Normalizer::new(&t);
         for (text, want) in [
             ("sixty miles per hour", "60 miles per hour"),
             ("two miles per hour", "2 miles per hour"),
@@ -1728,7 +1695,7 @@ mod tests {
     #[test]
     fn month_date_cells_rank_the_spoken_form_second() {
         let t = build_english().expect("build");
-        let engine = crate::engine::Engine::new(&t);
+        let engine = crate::engine::Normalizer::new(&t);
         let tokens: Vec<&[u8]> = vec![b"january", b"eighth", b"eighteen", b"fifteen"];
         let mut out = [0u8; 64];
         let mut receipts = [crate::types::SpanReceipt::default(); MAX_TOKENS];
@@ -1757,15 +1724,15 @@ mod tests {
                 .expect("render");
             String::from_utf8(buf[..pos].to_vec()).expect("utf8")
         };
-        assert_eq!(render(ranks[0]), "January 8, 1815");
-        assert_eq!(render(ranks[1]), "january 8 1815");
-        assert_eq!(render(ranks[2]), "January 8 1815");
+        assert_eq!(render(ranks[0]), "January 8th, 1815");
+        assert_eq!(render(ranks[1]), "january 8th 1815");
+        assert_eq!(render(ranks[2]), "January 8th 1815");
     }
 
     #[test]
     fn decade_words_render_their_value_with_an_s() {
         let t = build_english().expect("build");
-        let engine = crate::engine::Engine::new(&t);
+        let engine = crate::engine::Normalizer::new(&t);
         for (text, want) in [
             ("the nineteen eighties", "the 1980s"),
             ("the twenty twenties", "the 2020s"),
@@ -1850,7 +1817,7 @@ mod tests {
     }
 
     #[test]
-    fn money_percent_and_minus() {
+    fn money_and_percent() {
         let t = build_english().expect("build");
         assert_cardinal(&t, &[("three dollars ninety nine", "$3.99")]);
         for (phrase, want) in [
@@ -1864,8 +1831,6 @@ mod tests {
             ("four point five billion dollars", "$4.5 billion"),
             ("twenty percent", "20%"),
             ("three point two percent", "3.2%"),
-            ("minus four", "-4"),
-            ("minus seven point five", "-7.5"),
             ("two hundred meters", "200 meters"),
             ("five euros", "5 euros"),
         ] {
@@ -1925,13 +1890,13 @@ mod tests {
         let t = build_english().expect("build");
         assert_eq!(t.context.lookup(MONTH, THE).0, english::DOMAIN_MONTH_DATE);
         for (phrase, want) in [
-            ("twenty third", "23"),
-            ("fourth", "4"),
+            ("twenty third", "23rd"),
+            ("fourth", "4th"),
             ("thirty", "30"),
             ("nineteen seventy", "1970"),
-            ("fourth nineteen ninety nine", "4 1999"),
-            ("eleventh two thousand three", "11 2003"),
-            ("twenty first twenty ten", "21 2010"),
+            ("fourth nineteen ninety nine", "4th 1999"),
+            ("eleventh two thousand three", "11th 2003"),
+            ("twenty first twenty ten", "21st 2010"),
         ] {
             assert_eq!(render_reading(&t, phrase, DOMAIN_DATE), want, "{phrase}");
         }
@@ -2180,7 +2145,6 @@ mod tests {
             assert_eq!(t.context.lookup(THE, DOLLAR), (DOMAIN_MONEY, 15));
             assert_eq!(t.context.lookup(0, CENT), (DOMAIN_CENTS, 15));
             assert_eq!(t.context.lookup(1, PERCENT), (DOMAIN_PERCENT, 15));
-            assert_eq!(t.context.lookup(MINUS, 1), (DOMAIN_NEGATIVE, 15));
             assert_eq!(t.affix_len[DOMAIN_MONEY as usize], 1);
             assert_eq!(t.affix_len[DOMAIN_CARDINAL as usize], 0);
         }

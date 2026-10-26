@@ -4,7 +4,7 @@ use crate::tables::candidate::CandidateTable;
 use crate::tables::context::ContextLut;
 use crate::tables::lexicon::{self, Lexicon};
 use crate::tables::shape::{self, ShapeTable};
-use crate::types::{CELL_COUNT, CandidateId, DOMAIN_COUNT, Role, SHAPE_COUNT};
+use crate::types::{CELL_COUNT, CandidateId, DOMAIN_COUNT, Role, SHAPE_COUNT, SettingBits};
 
 pub const MAX_CANONICAL: usize = 4096;
 pub const WORDS_FIRST_WORDS: usize = MAX_CANONICAL / 64;
@@ -47,6 +47,12 @@ pub struct Tables {
     pub per_stop: Aligned<[u64; 4]>,
     pub per_units: Aligned<[u64; 4]>,
     pub pair_only: Aligned<[u64; 4]>,
+    /// The settings a word class belongs to. A token whose class has a
+    /// switched-off setting is read as an unknown word and kept as spoken.
+    pub class_settings: Aligned<[SettingBits; 256]>,
+    /// The settings a domain belongs to. A cell in a domain with a
+    /// switched-off setting uses its rank-1 candidate.
+    pub domain_settings: Aligned<[SettingBits; DOMAIN_COUNT]>,
     pub suffix_roles: u16,
     pub prefix_roles: u16,
     pub connector_roles: u16,
@@ -76,6 +82,8 @@ impl Tables {
         per_stop: Aligned([0; 4]),
         per_units: Aligned([0; 4]),
         pair_only: Aligned([0; 4]),
+        class_settings: Aligned([0; 256]),
+        domain_settings: Aligned([0; DOMAIN_COUNT]),
         suffix_roles: 0,
         prefix_roles: 0,
         connector_roles: 0,
@@ -123,6 +131,8 @@ mod tests {
             offset_of!(Tables, per_stop),
             offset_of!(Tables, per_units),
             offset_of!(Tables, pair_only),
+            offset_of!(Tables, class_settings),
+            offset_of!(Tables, domain_settings),
         ];
         for (i, off) in offsets.into_iter().enumerate() {
             assert_eq!(off % 64, 0, "field {i} at offset {off}");

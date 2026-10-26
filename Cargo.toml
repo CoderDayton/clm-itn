@@ -17,7 +17,7 @@ exclude = [".github/", "CLAUDE.md", "Scripts.toml", "lefthook.yml", "tools/"]
 default = ["std"]
 # The CLI, the bench and eval tools, and the table builder.
 std = ["alloc"]
-# Engine::normalize, Engine::normalize_into and format_line.
+# Normalizer::normalize, Normalizer::normalize_into and format_line.
 alloc = []
 
 [dependencies]

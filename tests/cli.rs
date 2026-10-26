@@ -24,16 +24,28 @@ fn invalid_utf8_line_does_not_stop_later_lines() {
     assert!(out.status.success(), "{:?}", out.status);
     let text = String::from_utf8(out.stdout).expect("utf8 output");
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines, ["five \u{FFFD} six", "25"]);
+    assert_eq!(lines, ["5 \u{FFFD} 6", "25"]);
 }
 
 #[test]
-fn single_digits_flag_writes_lone_numbers_as_digits() {
-    let plain = run(&[], b"like eight years\n");
-    assert_eq!(plain.stdout, b"like eight years\n");
-    let digits = run(&["--single-digits"], b"like eight years\n");
-    assert!(digits.status.success());
-    assert_eq!(digits.stdout, b"like 8 years\n");
+fn no_flags_switch_settings_off() {
+    let all = run(&[], b"like eight years at fifty percent\n");
+    assert_eq!(all.stdout, b"like 8 years at 50%\n");
+    let off = run(
+        &["--no-single-digits", "--no-percent"],
+        b"like eight years at fifty percent\n",
+    );
+    assert!(off.status.success());
+    assert_eq!(off.stdout, b"like eight years at 50 percent\n");
+}
+
+#[test]
+fn help_lists_every_setting() {
+    let out = run(&["--help"], b"");
+    let text = String::from_utf8(out.stdout).expect("utf8");
+    for s in clm_itn::Setting::ALL {
+        assert!(text.contains(&format!("--no-{}", s.name())), "{text}");
+    }
 }
 
 #[test]
@@ -53,6 +65,22 @@ fn help_prints_usage() {
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).expect("utf8");
     assert!(text.starts_with("Usage: clm-itn"), "{text}");
+}
+
+#[test]
+fn help_and_version_work_next_to_other_flags() {
+    let help = run(&["--no-percent", "--help"], b"");
+    assert!(help.status.success(), "{:?}", help.status);
+    let text = String::from_utf8(help.stdout).expect("utf8");
+    assert!(text.starts_with("Usage: clm-itn"), "{text}");
+
+    let version = run(&["-V", "--no-dates"], b"");
+    assert!(version.status.success(), "{:?}", version.status);
+    let text = String::from_utf8(version.stdout).expect("utf8");
+    assert!(text.starts_with("clm-itn "), "{text}");
+
+    let bad = run(&["--no-percent", "--bogus"], b"");
+    assert_eq!(bad.status.code(), Some(2));
 }
 
 #[test]

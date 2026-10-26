@@ -1,6 +1,6 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use clm_itn::engine::Engine;
+use clm_itn::engine::Normalizer;
 use clm_itn::types::{FormatError, MAX_TOKENS, SpanReceipt};
 
 const FORMAT_WINDOWS: usize = 200_000;
@@ -29,8 +29,8 @@ impl XorShift {
     }
 }
 
-fn engine() -> Engine<'static> {
-    Engine::new(clm_itn::english())
+fn engine() -> Normalizer<'static> {
+    Normalizer::new(clm_itn::english())
 }
 
 fn token(r: &mut XorShift, words: &[&str]) -> Vec<u8> {
@@ -84,7 +84,7 @@ type Run = (
     [SpanReceipt; MAX_TOKENS],
 );
 
-fn run_format(e: &Engine, toks: &[&[u8]], out_len: usize) -> Run {
+fn run_format(e: &Normalizer, toks: &[&[u8]], out_len: usize) -> Run {
     let mut out = [0u8; MAX_OUT];
     let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
     let r = e.format_receipts(toks, &mut out[..out_len], &mut receipts);
@@ -95,7 +95,7 @@ fn run_format(e: &Engine, toks: &[&[u8]], out_len: usize) -> Run {
     (r, bytes, receipts)
 }
 
-fn check_format(e: &Engine, toks: &[&[u8]], out_len: usize) -> Result<(), String> {
+fn check_format(e: &Normalizer, toks: &[&[u8]], out_len: usize) -> Result<(), String> {
     let n = toks.len();
     let (first, bytes, receipts) = run_format(e, toks, out_len);
     match first {

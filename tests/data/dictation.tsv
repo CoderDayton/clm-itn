@@ -40,48 +40,48 @@ the meeting is at three p m	the meeting is at 3 pm	time
 we start at nine a m	we start at 9 am	time
 the movie starts at seven forty	the movie starts at 7:40	time
 i'll call you at four	i'll call you at 4	time!
-i'll be there in five minutes	i'll be there in five minutes	duration
+i'll be there in five minutes	i'll be there in 5 minutes	duration
 wait ten minutes	wait 10 minutes	duration
-it took two hours	it took two hours	duration
+it took two hours	it took 2 hours	duration
 it took forty five minutes	it took 45 minutes	duration
 the timer is thirty seconds	the timer is 30 seconds	duration
-we waited three days	we waited three days	duration
+we waited three days	we waited 3 days	duration
 it lasted fifteen years	it lasted 15 years	duration
 the course runs for twelve weeks	the course runs for 12 weeks	duration
 about twenty minutes left	about 20 minutes left	duration
 the drive is seventy two hours	the drive is 72 hours	duration
 we stayed fourteen days	we stayed 14 days	duration
-eight hours of sleep	eight hours of sleep	duration
-on may fifth	on May 5	date
-my birthday is june twenty first	my birthday is June 21	date
-the deadline is january fifteenth	the deadline is January 15	date
-on march third	on March 3	date
-we fly out on august tenth	we fly out on August 10	date
-it's due september thirtieth	it's due September 30	date
-on december twenty fifth	on December 25	date
-it opens october first twenty twenty six	it opens October 1, 2026	date
-born on july fourth nineteen ninety	born on July 4, 1990	date
-the contract started february first twenty twenty four	the contract started February 1, 2024	date
-on april twelfth	on April 12	date
+eight hours of sleep	8 hours of sleep	duration
+on may fifth	on May 5th	date
+my birthday is june twenty first	my birthday is June 21st	date
+the deadline is january fifteenth	the deadline is January 15th	date
+on march third	on March 3rd	date
+we fly out on august tenth	we fly out on August 10th	date
+it's due september thirtieth	it's due September 30th	date
+on december twenty fifth	on December 25th	date
+it opens october first twenty twenty six	it opens October 1st, 2026	date
+born on july fourth nineteen ninety	born on July 4th, 1990	date
+the contract started february first twenty twenty four	the contract started February 1st, 2024	date
+on april twelfth	on April 12th	date
 in june twenty twenty five	in June 2025	date
 since november nineteen ninety nine	since November 1999	date
-the launch is on may twenty second	the launch is on May 22	date
-let's meet on june third	let's meet on June 3	date
-november eleventh is a holiday	November 11 is a holiday	date
-the report is due friday march seventh	the report is due friday March 7	date!
-on july first	on July 1	date
-the lease ends august thirty first twenty twenty seven	the lease ends August 31, 2027	date
-we moved on january second	we moved on January 2	date
+the launch is on may twenty second	the launch is on May 22nd	date
+let's meet on june third	let's meet on June 3rd	date
+november eleventh is a holiday	November 11th is a holiday	date
+the report is due friday march seventh	the report is due friday March 7th	date!
+on july first	on July 1st	date
+the lease ends august thirty first twenty twenty seven	the lease ends August 31st, 2027	date
+we moved on january second	we moved on January 2nd	date
 the party is on the fifth of may	the party is on the fifth of may	date!
 it starts the first of june	it starts the first of june	date!
 we celebrate the fourth of july	we celebrate the fourth of july	date!
 rent is due on the fifteenth	rent is due on the 15th	date!
 see you on the third	see you on the third	date
 it ships in april twenty twenty six	it ships in April 2026	date
-on december thirty first at midnight	on December 31 at midnight	date!
-the event is on october twenty eighth	the event is on October 28	date
-school starts september second	school starts September 2	date
-the trial began march fifteenth twenty twenty	the trial began March 15, 2020	date
+on december thirty first at midnight	on December 31st at midnight	date!
+the event is on october twenty eighth	the event is on October 28th	date
+school starts september second	school starts September 2nd	date
+the trial began march fifteenth twenty twenty	the trial began March 15th, 2020	date
 it's five dollars	it's $5	money
 it costs twenty dollars	it costs $20	money
 it was five dollars and fifty cents	it was $5.50	money
@@ -116,7 +116,7 @@ she makes twenty five thousand dollars a year	she makes $25000 a year	money
 he owes me thirty dollars	he owes me $30	money
 the bill came to eighty seven dollars and twenty cents	the bill came to $87.20	money
 a nine dollar sandwich	a $9 sandwich	money
-i have three kids	i have three kids	count
+i have three kids	i have 3 kids	count
 we have twelve people coming	we have 12 people coming	count
 about fifty people showed up	about 50 people showed up	count
 i sent two hundred emails	i sent 200 emails	count
@@ -125,20 +125,20 @@ the stadium held twenty five thousand fans	the stadium held 25000 fans	count
 two million people live there	2 million people live there	count!
 the app has one point five million users	the app has 1.5 million users	count
 the team has eleven players	the team has 11 players	count
-she owns nine cats	she owns nine cats	count
+she owns nine cats	she owns 9 cats	count
 we need ten chairs	we need 10 chairs	count
 order thirty six boxes	order 36 boxes	count
-she has three sons and two daughters	she has three sons and two daughters	count
+she has three sons and two daughters	she has 3 sons and 2 daughters	count
 i read twenty books this year	i read 20 books this year	count
 we got one hundred and five votes	we got 105 votes	count
 the video has three hundred thousand views	the video has 300000 views	count
 it has ten thousand reviews	it has 10000 reviews	count
-we expect between five and ten people	we expect between five and 10 people	count!
+we expect between five and ten people	we expect between 5 and 10 people	count!
 twelve or thirteen kids came	12 or 13 kids came	count!
-i tried two or three times	i tried two or three times	count
+i tried two or three times	i tried 2 or 3 times	count
 the cart has nineteen items	the cart has 19 items	count
 there were ninety nine problems	there were 99 problems	count
-add six eggs	add six eggs	count
+add six eggs	add 6 eggs	count
 the answer is forty two	the answer is 42	count
 a meal with eight hundred calories	a meal with 800 calories	count
 i walked one thousand two hundred thirty four steps	i walked 1234 steps	count
@@ -220,7 +220,7 @@ the war ended in eighteen sixty five	the war ended in 1865	year
 houses from the eighteen hundreds	houses from the 1800s	year!
 twenty twenty was a strange year	2020 was a strange year	year!
 she is five years old	she is 5 years old	age
-my son is seven	my son is seven	age!
+my son is seven	my son is 7	age!
 a five year old boy	a 5-year-old boy	age!
 he turned forty	he turned 40	age
 she is in her forties	she is in her 40s	age
@@ -247,7 +247,7 @@ two of us can go	two of us can go	keep
 hundreds of people came	hundreds of people came	keep
 thousands of fans cheered	thousands of fans cheered	keep
 it took millions of years	it took millions of years	keep
-one or two people	one or two people	keep
+one or two people	1 or 2 people	count
 on the one hand it's cheap	on the one hand it's cheap	keep
 check them one by one	check them one by one	keep
 which one do you want	which one do you want	keep
@@ -258,11 +258,11 @@ i told you a hundred times	i told you a hundred times	keep!
 once or twice a week	once or twice a week	keep
 wait a second	wait a second	keep
 first come first served	first come first served	keep
-we're open seven days a week	we're open seven days a week	keep
-three things to remember	three things to remember	keep
-two weeks ago	two weeks ago	keep
-i called four times	i called four times	keep
-it got five stars	it got five stars	keep
+we're open seven days a week	we're open 7 days a week	count
+three things to remember	3 things to remember	count
+two weeks ago	2 weeks ago	count
+i called four times	i called 4 times	count
+it got five stars	it got 5 stars	count
 six of one half a dozen of the other	six of one half a dozen of the other	keep
 it's one thing to say it	it's one thing to say it	keep
 one at a time please	one at a time please	keep
@@ -275,7 +275,7 @@ buy a dozen eggs	buy a dozen eggs	keep
 there's zero chance	there's zero chance	keep!
 two heads are better than one	two heads are better than one	keep
 the two of them left	the two of them left	keep
-i have one question	i have one question	keep
+i have one question	i have 1 question	count
 it arrived in one piece	it arrived in one piece	keep
 back to square one	back to square one	keep
 i'm on cloud nine	i'm on cloud nine	keep
@@ -292,10 +292,10 @@ take the first exit	take the first exit	keep
 it's a one way street	it's a one way street	keep
 call a third party	call a third party	keep
 the office is on the second floor	the office is on the second floor	keep
-two years ago today	two years ago today	keep
-in three months	in three months	keep
+two years ago today	2 years ago today	count
+in three months	in 3 months	count
 a couple hundred people	a couple hundred people	keep!
-we split it two ways	we split it two ways	keep
+we split it two ways	we split it 2 ways	count
 for the first and last time	for the first and last time	keep
 she was first in line	she was first in line	keep
 he ranked second	he ranked second	keep
@@ -324,9 +324,9 @@ we march five miles a day	we march 5 miles a day	trap_month_verb
 it may first be noticed	it may first be noticed	trap_month_verb
 you may one day understand	you may one day understand	trap_month_verb
 they march ten miles	they march 10 miles	trap_month_verb
-the race is may fifth	the race is May 5	trap_month_verb
+the race is may fifth	the race is May 5th	trap_month_verb
 he was the first	he was the first	trap_edge
-five	five	trap_edge!
+five	5	trap_edge!
 First, we go home.	First, we go home.	punct
 Second, check the logs.	Second, check the logs.	punct
 One, two, three, go.	One, two, three, go.	punct
@@ -334,7 +334,7 @@ At five p.m., we leave.	At 5 p.m., we leave.	punct
 It costs twenty dollars.	It costs $20.	punct
 The meeting is at ten thirty a.m.	The meeting is at 10:30 a.m.	punct
 We have twelve people, maybe thirteen.	We have 12 people, maybe 13.	punct
-On May fifth, we launch.	On May 5, we launch.	punct
+On May fifth, we launch.	On May 5th, we launch.	punct
 Call me at seven.	Call me at 7.	punct!
 I ran five miles today.	I ran 5 miles today.	punct
 It's fifty percent off.	It's 50% off.	punct
@@ -342,13 +342,13 @@ She's in tenth grade.	She's in 10th grade.	punct
 Twenty five people came.	Twenty five people came.	punct!
 In twenty twenty, things changed.	In 2020, things changed.	punct
 At first, nobody came.	At first, nobody came.	punct
-May fifth works for me.	May 5 works for me.	punct
+May fifth works for me.	May 5th works for me.	punct
 It may first seem odd.	It may first seem odd.	punct
 Uh, twenty five, I think.	Uh, 25, I think.	punct
 That's a fifty fifty chance.	That's a fifty fifty chance.	punct!
 One fifth of the class failed.	One fifth of the class failed.	punct!
 The rent is twelve hundred dollars, due monthly.	The rent is $1200, due monthly.	punct
-We meet on June third, at noon.	We meet on June 3, at noon.	punct
+We meet on June third, at noon.	We meet on June 3rd, at noon.	punct
 Version two point one is out.	Version 2.1 is out.	punct
 It's ninety degrees, so stay inside.	It's 90 degrees, so stay inside.	punct
 Oh, one more thing.	Oh, one more thing.	punct
@@ -356,4 +356,4 @@ Is it twenty-five or thirty?	Is it 25 or 30?	punct!
 I paid twenty-five dollars.	I paid $25.	punct
 The flight is at six forty-five a.m.	The flight is at 6:45 a.m.	punct!
 Ten minutes, then we start.	Ten minutes, then we start.	punct!
-Wait, is it five or six?	Wait, is it five or six?	punct
+Wait, is it five or six?	Wait, is it 5 or 6?	punct

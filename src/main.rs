@@ -1,18 +1,25 @@
 use std::io::{self, BufRead, Write};
 use std::process::ExitCode;
 
-use clm_itn::{Engine, Style};
+use clm_itn::{Normalizer, Setting};
 
-const USAGE: &str = "Usage: clm-itn [--single-digits] [--help | --version]
+const ABOUT: &str = "Usage: clm-itn [--no-<setting>]... [--help | --version]
 
 Reads spoken-form text from stdin, one sentence per line, and writes the
 written form to stdout. Invalid UTF-8 bytes become U+FFFD.
 
---single-digits  write lone single numbers as digits (\"8 years\") instead of AP
-                 words (\"eight years\")";
+Every setting is on. Switch one off with its flag:";
 
-fn run(style: Style) -> io::Result<()> {
-    let engine = Engine::english().with_style(style);
+fn usage() -> String {
+    let mut s = String::from(ABOUT);
+    for setting in Setting::ALL {
+        s.push_str("\n  --no-");
+        s.push_str(setting.name());
+    }
+    s
+}
+
+fn run(engine: Normalizer) -> io::Result<()> {
     let mut input = io::stdin().lock();
     let mut stdout = io::stdout().lock();
     let mut raw = Vec::new();
@@ -30,8 +37,8 @@ fn run(style: Style) -> io::Result<()> {
     }
 }
 
-fn start(style: Style) -> ExitCode {
-    match run(style) {
+fn start(engine: Normalizer) -> ExitCode {
+    match run(engine) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("clm-itn: {e}");
@@ -42,20 +49,24 @@ fn start(style: Style) -> ExitCode {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.as_slice() {
-        [] => start(Style::Ap),
-        [a] if a == "--single-digits" => start(Style::SingleDigits),
-        [a] if a == "--help" || a == "-h" => {
-            println!("{USAGE}");
-            ExitCode::SUCCESS
-        }
-        [a] if a == "--version" || a == "-V" => {
-            println!("clm-itn {}", env!("CARGO_PKG_VERSION"));
-            ExitCode::SUCCESS
-        }
-        _ => {
-            eprintln!("{USAGE}");
-            ExitCode::from(2)
+    let has = |flags: [&str; 2]| args.iter().any(|a| flags.contains(&a.as_str()));
+    if has(["--help", "-h"]) {
+        println!("{}", usage());
+        return ExitCode::SUCCESS;
+    }
+    if has(["--version", "-V"]) {
+        println!("clm-itn {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
+    let mut engine = Normalizer::english();
+    for a in &args {
+        match a.strip_prefix("--no-").and_then(Setting::from_name) {
+            Some(setting) => engine = engine.without(setting),
+            None => {
+                eprintln!("{}", usage());
+                return ExitCode::from(2);
+            }
         }
     }
+    start(engine)
 }

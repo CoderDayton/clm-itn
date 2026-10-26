@@ -1,7 +1,7 @@
 use crate::hash::next_seed;
 use crate::types::{
     ClassId, DOMAIN_CENTS, DOMAIN_MEASURE, DOMAIN_MEASURE_POWER, DOMAIN_MEASURE_PREFIX,
-    DOMAIN_MONEY, DOMAIN_NEGATIVE, DOMAIN_PERCENT, DomainId, Role,
+    DOMAIN_MONEY, DOMAIN_PERCENT, DomainId, Role, Setting,
 };
 
 pub const DIGIT: ClassId = 2;
@@ -31,7 +31,6 @@ pub const MONTH: ClassId = 25;
 pub const DOLLAR: ClassId = 26;
 pub const CENT: ClassId = 27;
 pub const PERCENT: ClassId = 28;
-pub const MINUS: ClassId = 29;
 pub const LETTER_PM: ClassId = 30;
 pub const UNIT: ClassId = 31;
 pub const POWER: ClassId = 32;
@@ -48,6 +47,19 @@ pub const PAIR_ONLY: [ClassId; 2] = [DEGREE, TEMP];
 pub const DOMAIN_MONTH_DATE: DomainId = 13;
 pub const DOMAIN_MAY_DATE: DomainId = 14;
 pub const START_CLASSES: [ClassId; 2] = [MONTH, MAY];
+
+/// Word classes kept as spoken when their setting is off.
+pub const SETTING_CLASSES: [(Setting, &[ClassId]); 5] = [
+    (Setting::Percent, &[PERCENT]),
+    (Setting::Currency, &[DOLLAR, CENT]),
+    (Setting::Letters, &[LETTER_PM]),
+    (Setting::Oclock, &[OCLOCK]),
+    (Setting::Temperature, &[TEMP]),
+];
+
+/// Domains that use their rank-1 candidate when their setting is off.
+pub const SETTING_DOMAINS: [(Setting, &[DomainId]); 1] =
+    [(Setting::Dates, &[DOMAIN_MONTH_DATE, DOMAIN_MAY_DATE])];
 
 pub use crate::types::{
     ROLE_AMPM, ROLE_AND, ROLE_CURRENCY, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MER, ROLE_MINUS,
@@ -77,11 +89,6 @@ pub struct LiteralClassDef {
 
 pub const LITERAL_CLASSES: &[LiteralClassDef] = &[
     LiteralClassDef {
-        class: MINUS,
-        role: ROLE_MINUS,
-        words: &[("minus", "-")],
-    },
-    LiteralClassDef {
         class: MONTH,
         role: ROLE_MINUS,
         words: &[
@@ -106,14 +113,7 @@ pub const LITERAL_CLASSES: &[LiteralClassDef] = &[
     LiteralClassDef {
         class: DOLLAR,
         role: ROLE_CURRENCY,
-        words: &[
-            ("dollar", "$"),
-            ("dollars", "$"),
-            ("yen", "¥"),
-            ("won", "₩"),
-            ("rupee", "₹"),
-            ("rupees", "₹"),
-        ],
+        words: &[("dollar", "$"), ("dollars", "$")],
     },
     LiteralClassDef {
         class: CENT,
@@ -128,27 +128,27 @@ pub const LITERAL_CLASSES: &[LiteralClassDef] = &[
     LiteralClassDef {
         class: AM,
         role: ROLE_AMPM,
-        words: &[("am", " a.m.")],
+        words: &[("am", "am")],
     },
     LiteralClassDef {
         class: PM,
         role: ROLE_AMPM,
-        words: &[("pm", " p.m.")],
+        words: &[("pm", "pm")],
     },
     LiteralClassDef {
         class: UNIT,
         role: ROLE_UNIT,
-        words: UNITS_SI,
+        words: UNIT_WORDS,
     },
     LiteralClassDef {
         class: POWER,
         role: ROLE_UNIT,
-        words: POWERS,
+        words: POWER_WORDS,
     },
     LiteralClassDef {
         class: PREFIX,
         role: ROLE_UNIT,
-        words: SI_PREFIXES,
+        words: PREFIX_WORDS,
     },
     LiteralClassDef {
         class: DEGREE,
@@ -159,114 +159,111 @@ pub const LITERAL_CLASSES: &[LiteralClassDef] = &[
         class: TEMP,
         role: ROLE_UNIT,
         words: &[
-            ("fahrenheit", " Fahrenheit"),
-            ("celsius", " Celsius"),
-            ("centigrade", " Celsius"),
+            ("fahrenheit", "Fahrenheit"),
+            ("celsius", "Celsius"),
+            ("centigrade", "Celsius"),
         ],
     },
 ];
 
-const UNITS_SI: &[(&str, &str)] = &[
-    ("euro", "euro"),
-    ("euros", "euros"),
-    ("meter", "m"),
-    ("meters", "m"),
-    ("metre", "m"),
-    ("metres", "m"),
-    ("kilometer", "km"),
-    ("kilometers", "km"),
-    ("kilometre", "km"),
-    ("kilometres", "km"),
-    ("centimeter", "cm"),
-    ("centimeters", "cm"),
-    ("millimeter", "mm"),
-    ("millimeters", "mm"),
-    ("micrometer", "μm"),
-    ("micrometers", "μm"),
-    ("nanometer", "nm"),
-    ("nanometers", "nm"),
-    ("mile", "mi"),
-    ("miles", "mi"),
-    ("foot", "ft"),
-    ("feet", "ft"),
-    ("inch", "in"),
-    ("inches", "in"),
-    ("yard", "yd"),
-    ("yards", "yd"),
-    ("gram", "g"),
-    ("grams", "g"),
-    ("kilogram", "kg"),
-    ("kilograms", "kg"),
-    ("milligram", "mg"),
-    ("milligrams", "mg"),
-    ("tonne", "t"),
-    ("tonnes", "t"),
-    ("ounce", "oz"),
-    ("pound", "lb"),
-    ("pounds", "lb"),
-    ("ounces", "oz"),
-    ("liter", "l"),
-    ("liters", "l"),
-    ("litre", "l"),
-    ("litres", "l"),
-    ("milliliter", "ml"),
-    ("milliliters", "ml"),
-    ("hectare", "ha"),
-    ("hectares", "ha"),
-    ("acre", "ac"),
-    ("acres", "ac"),
-    ("hertz", "Hz"),
-    ("kilohertz", "kHz"),
-    ("megahertz", "MHz"),
-    ("gigahertz", "GHz"),
-    ("watt", "W"),
-    ("watts", "W"),
-    ("milliwatt", "mW"),
-    ("milliwatts", "mW"),
-    ("kilowatt", "kW"),
-    ("kilowatts", "kW"),
-    ("megawatt", "MW"),
-    ("megawatts", "MW"),
-    ("gigawatt", "GW"),
-    ("gigawatts", "GW"),
-    ("volt", "V"),
-    ("volts", "V"),
-    ("kilovolt", "kV"),
-    ("kilovolts", "kV"),
-    ("byte", "B"),
-    ("bytes", "B"),
-    ("kilobyte", "kB"),
-    ("kilobytes", "kB"),
-    ("megabyte", "MB"),
-    ("megabytes", "MB"),
-    ("gigabyte", "GB"),
-    ("gigabytes", "GB"),
-    ("terabyte", "TB"),
-    ("terabytes", "TB"),
-    ("horsepower", "hp"),
-    ("lumen", "lm"),
-    ("lumens", "lm"),
-    ("calorie", "cal"),
-    ("calories", "cal"),
-    ("kilocalorie", "kcal"),
-    ("kilocalories", "kcal"),
+/// Literal entries whose written form is the spoken word.
+macro_rules! as_spoken {
+    ($($w:literal),* $(,)?) => {
+        &[$(($w, $w)),*]
+    };
+}
+
+const UNIT_WORDS: &[(&str, &str)] = as_spoken![
+    "euro",
+    "euros",
+    "meter",
+    "meters",
+    "metre",
+    "metres",
+    "kilometer",
+    "kilometers",
+    "kilometre",
+    "kilometres",
+    "centimeter",
+    "centimeters",
+    "millimeter",
+    "millimeters",
+    "micrometer",
+    "micrometers",
+    "nanometer",
+    "nanometers",
+    "mile",
+    "miles",
+    "foot",
+    "feet",
+    "inch",
+    "inches",
+    "yard",
+    "yards",
+    "gram",
+    "grams",
+    "kilogram",
+    "kilograms",
+    "milligram",
+    "milligrams",
+    "tonne",
+    "tonnes",
+    "ounce",
+    "pound",
+    "pounds",
+    "ounces",
+    "liter",
+    "liters",
+    "litre",
+    "litres",
+    "milliliter",
+    "milliliters",
+    "hectare",
+    "hectares",
+    "acre",
+    "acres",
+    "hertz",
+    "kilohertz",
+    "megahertz",
+    "gigahertz",
+    "watt",
+    "watts",
+    "milliwatt",
+    "milliwatts",
+    "kilowatt",
+    "kilowatts",
+    "megawatt",
+    "megawatts",
+    "gigawatt",
+    "gigawatts",
+    "volt",
+    "volts",
+    "kilovolt",
+    "kilovolts",
+    "byte",
+    "bytes",
+    "kilobyte",
+    "kilobytes",
+    "megabyte",
+    "megabytes",
+    "gigabyte",
+    "gigabytes",
+    "terabyte",
+    "terabytes",
+    "horsepower",
+    "lumen",
+    "lumens",
+    "calorie",
+    "calories",
+    "kilocalorie",
+    "kilocalories",
 ];
 
-const POWERS: &[(&str, &str)] = &[("square", "²"), ("cubic", "³")];
+const POWER_WORDS: &[(&str, &str)] = as_spoken!["square", "cubic"];
 
-const SI_PREFIXES: &[(&str, &str)] = &[
-    ("kilo", "k"),
-    ("mega", "M"),
-    ("giga", "G"),
-    ("tera", "T"),
-    ("peta", "P"),
-    ("hecto", "h"),
-    ("deci", "d"),
-    ("centi", "c"),
-    ("milli", "m"),
-    ("micro", "µ"),
-    ("nano", "n"),
-    ("c", "c"),
+const PREFIX_WORDS: &[(&str, &str)] = as_spoken![
+    "kilo", "mega", "giga", "tera", "peta", "hecto", "deci", "centi", "milli", "micro", "nano",
+    "c",
 ];
 
 const POWER_BASES: [&str; 9] = [
@@ -286,9 +283,6 @@ const PREFIX_BASES: [&str; 10] = [
 ];
 
 pub fn affix_domain(word: &str) -> Option<DomainId> {
-    if word == "minus" {
-        return Some(DOMAIN_NEGATIVE);
-    }
     let class = LITERAL_CLASSES
         .iter()
         .find(|c| c.words.iter().any(|w| w.0 == word))?
@@ -578,7 +572,6 @@ const YEAR_SAMPLES: usize = 3000;
 const DATE_SAMPLES: usize = 2000;
 const MONEY_SAMPLES: usize = 3000;
 const PERCENT_SAMPLES: usize = 1000;
-const NEGATIVE_SAMPLES: usize = 1000;
 const MEASURE_SAMPLES: usize = 1500;
 
 pub const KIND_MASS: &[(&str, f64)] = &[
@@ -594,7 +587,6 @@ pub const KIND_MASS: &[(&str, f64)] = &[
     ("identifier", 0.3),
     ("money", 0.5),
     ("percent", 0.2),
-    ("negative", 0.1),
 ];
 
 pub const PLURAL: &[&str] = &[
@@ -1012,15 +1004,6 @@ fn percents(s: &mut Sink) {
     }
 }
 
-fn negatives(s: &mut Sink) {
-    let w = 1.0 / NEGATIVE_SAMPLES as f64;
-    for _ in 0..NEGATIVE_SAMPLES {
-        let mut words = vec!["minus"];
-        words.extend(amount(s, AFFIX_MAX_DIGITS, 30));
-        s.push(words, SRC_CARDINAL, w, "negative");
-    }
-}
-
 fn measures(s: &mut Sink) {
     let w = 1.0 / MEASURE_SAMPLES as f64;
     for _ in 0..MEASURE_SAMPLES {
@@ -1031,11 +1014,11 @@ fn measures(s: &mut Sink) {
         };
         match (r >> 32) % 20 {
             0..=2 => {
-                words.push(pick_of(POWERS, r >> 8));
+                words.push(pick_of(POWER_WORDS, r >> 8));
                 words.push(POWER_BASES[((r >> 16) % POWER_BASES.len() as u64) as usize]);
             }
             3..=5 => {
-                let prefix = pick_of(SI_PREFIXES, r >> 8);
+                let prefix = pick_of(PREFIX_WORDS, r >> 8);
                 words.push(prefix);
                 words.push(if prefix == "c" {
                     "c"
@@ -1043,7 +1026,7 @@ fn measures(s: &mut Sink) {
                     PREFIX_BASES[((r >> 16) % PREFIX_BASES.len() as u64) as usize]
                 });
             }
-            _ => words.push(pick_of(UNITS_SI, r)),
+            _ => words.push(pick_of(UNIT_WORDS, r)),
         }
         s.push(words, SRC_CARDINAL, w, "measure");
     }
@@ -1159,7 +1142,6 @@ pub fn examples() -> Vec<Example> {
     dates(&mut s);
     money(&mut s);
     percents(&mut s);
-    negatives(&mut s);
     measures(&mut s);
     times(&mut s);
     identifiers(&mut s);

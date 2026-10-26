@@ -25,6 +25,6 @@ Run on 198,779 sentences (train 178,873, val 10,073, test 9,833) against the han
 | Learned, with strong "stays words" rules, no learned shapes | 79.7% | 78.6% |
 
 - Formatted labels add nothing over the hand tables. With learned shapes dropped, context and Tier 3 orders change no output.
-- The whole gain of the strong variant comes from learning that a number stays as words. The corpus is mostly book prose, which spells out small numbers; that rule drops cardinal routing from 98.5% to 73.8%. Whether a lone number stays as words is a style choice, set with `Style`.
+- The whole gain of the strong variant comes from learning that a number stays as words. The corpus is mostly book prose, which spells out small numbers; that rule drops cardinal routing from 98.5% to 73.8%. Whether a lone number stays as words is a choice, set with `Setting::SingleDigits`.
 - Learned shape ranking lowers validation by 8 sentences. The ranking floor is chosen by validation exact-sentence score, defaulting to the hand priors.
 - The τ sweep picks 14–15, which abstains nearly every span; `TAU` stays 3.

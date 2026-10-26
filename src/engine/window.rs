@@ -2,11 +2,11 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use alloc::{format, vec};
 
-use crate::engine::{Engine, Style};
+use crate::engine::Normalizer;
 use crate::tables::{Tables, WORDS_FIRST_WORDS};
 use crate::types::{
     CLASS_UNKNOWN, ClassId, MAX_TOKENS, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE, ROLE_SCALE,
-    ROLE_TEEN, ROLE_TENS,
+    ROLE_TEEN, ROLE_TENS, Setting,
 };
 
 const LINE_OUT: usize = 512;
@@ -248,6 +248,20 @@ fn guarded(words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<bool> {
         if digits(i) && i + 1 < n && num(i + 1) {
             mark(i, run_right(i + 1, &num));
         }
+        if i > 0
+            && i + 1 < n
+            && num(i + 1)
+            && !num(i)
+            && connector_start(words[i].core)
+            && let Some((from, to)) = relative_time(words, i)
+        {
+            mark(from, to);
+        }
+        if num(i)
+            && let Some((from, to)) = word_sense(words, i)
+        {
+            mark(from, to);
+        }
         if let Some(end) = mixed_fraction(words, i) {
             let j = if i > 0 && !num(i - 1) && words[i - 1].numeric {
                 i - 1
@@ -264,6 +278,131 @@ fn guarded(words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<bool> {
 
 const FRACTION_WORDS: [&str; 6] = ["half", "quarter", "third", "thirds", "quarters", "halves"];
 
+const SMALL: [&str; 9] = [
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+];
+const ONE_AFTER_WORD: [&str; 5] = ["no", "which", "this", "that", "the"];
+const ONE_BEFORE_WORD: [&str; 7] = ["of", "more", "another", "at", "way", "thing", "sec"];
+const GROUP: [&str; 3] = ["us", "them", "you"];
+const IDIOMS: [&[&str]; 3] = [
+    &["six", "of", "one"],
+    &["cloud", "nine"],
+    &["two", "heads", "are", "better", "than", "one"],
+];
+
+/// A lone "one" to "nine" used as a word, not a count ("no one", "one of
+/// them", "the two of us", "two thirds", "cloud nine"). Returns the span that
+/// stays as spoken. Context never crosses punctuation.
+fn word_sense(words: &[Word], i: usize) -> Option<(usize, usize)> {
+    let eq = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
+    let any = |a: &str, set: &[&str]| set.iter().any(|s| eq(a, s));
+    let me = words[i].core;
+    if !(3..=5).contains(&me.len()) || !any(me, &SMALL) {
+        return None;
+    }
+    let at = |d: isize| -> Option<&Word> {
+        let k = i.checked_add_signed(d).filter(|&k| k < words.len())?;
+        let (lo, hi) = (k.min(i), k.max(i));
+        let open = words[lo..hi].iter().all(|w| w.trail.is_empty())
+            && words[lo + 1..=hi].iter().all(|w| w.lead.is_empty());
+        open.then(|| &words[k])
+    };
+    let text = |d: isize| at(d).map_or("", |w| bare(w.core));
+    let numeric = |d: isize| at(d).is_some_and(|w| w.numeric);
+    if numeric(-1) {
+        return None;
+    }
+    for idiom in IDIOMS {
+        for (p, _) in idiom.iter().enumerate().filter(|(_, w)| eq(me, w)) {
+            let start = -(p as isize);
+            if idiom.iter().zip(start..).all(|(w, d)| eq(text(d), w)) {
+                return Some((i - p, i - p + idiom.len() - 1));
+            }
+        }
+    }
+    let (prev, next) = (text(-1), text(1));
+    let one = eq(me, "one");
+    if one && eq(next, "by") && eq(text(2), "one") {
+        return Some((i, i + 2));
+    }
+    let pronoun = one
+        && ((any(prev, &ONE_AFTER_WORD) && !numeric(1))
+            || (any(next, &ONE_BEFORE_WORD) && !numeric(2))
+            || (eq(next, "day") && at(-1).is_none())
+            || (eq(prev, "in") && eq(next, "piece"))
+            || (eq(next, "in") && eq(text(2), "a") && eq(text(3), "million")));
+    let group = eq(next, "of") && any(text(2), &GROUP);
+    (pronoun || group || any(next, &FRACTION_WORDS)).then_some((i, i))
+}
+
+const RELATIVE: [&str; 4] = ["to", "till", "past", "after"];
+
+/// Whether `core` starts like a [`RELATIVE`] word; skips most `relative_time` calls.
+fn connector_start(core: &str) -> bool {
+    match core.as_bytes() {
+        [a, b, ..] => matches!(
+            [a | 0x20, b | 0x20],
+            [b't', b'o'] | [b't', b'i'] | [b'p', b'a'] | [b'a', b'f']
+        ),
+        _ => false,
+    }
+}
+const HOURS: [&str; 12] = [
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+    "twelve",
+];
+const TIME_CUES: [&str; 9] = [
+    "at", "is", "it's", "was", "by", "until", "till", "around", "about",
+];
+
+/// A relative time such as "ten to four" or "half past six", with the
+/// connector at `i`. It reads as a clock time or as a range or score, so the
+/// span from the minute word to the hour stays as spoken. It counts only
+/// after a time cue ("at", "it's") or as a whole clause, and not when the
+/// hour is followed by a number word such as "pm" or a unit.
+#[inline(never)]
+fn relative_time(words: &[Word], i: usize) -> Option<(usize, usize)> {
+    let is = |k: usize, set: &[&str]| {
+        let b = bare(words[k].core);
+        set.iter().any(|s| s.eq_ignore_ascii_case(b))
+    };
+    let plain = |k: usize| words[k].lead.is_empty() && words[k].trail.is_empty();
+    let h = i + 1;
+    if i == 0 || h >= words.len() || !words[h].value || !plain(i) || !is(i, &RELATIVE) {
+        return None;
+    }
+    if !words[h].lead.is_empty() || !is(h, &HOURS) {
+        return None;
+    }
+    if h + 1 < words.len() && words[h].trail.is_empty() && words[h + 1].numeric {
+        return None;
+    }
+    let m = i - 1;
+    if !words[m].trail.is_empty() {
+        return None;
+    }
+    let from = if m > 0 && is(m - 1, &["twenty"]) && is(m, &["five"]) && plain(m - 1) {
+        m - 1
+    } else if is(m, &["five", "ten", "twenty", "quarter", "half"]) {
+        m
+    } else {
+        return None;
+    };
+    if from > 0 && words[from - 1].value && words[from - 1].trail.is_empty() {
+        return None;
+    }
+    let c = if from > 0 && is(from, &["quarter"]) && is(from - 1, &["a"]) && plain(from - 1) {
+        from - 1
+    } else {
+        from
+    };
+    let opens = c == 0 || !words[c - 1].trail.is_empty() || !words[c].lead.is_empty();
+    let closes = h + 1 == words.len() || !words[h].trail.is_empty();
+    let cue = !opens && is(c - 1, &TIME_CUES);
+    (cue || (opens && closes)).then_some((from, h))
+}
+
+#[inline(always)]
 fn mixed_fraction(words: &[Word], i: usize) -> Option<usize> {
     let at = |k: usize| words.get(k).map(|w| bare(w.core));
     let article = at(i + 1)?;
@@ -276,13 +415,17 @@ fn mixed_fraction(words: &[Word], i: usize) -> Option<usize> {
     .then_some(i + 2)
 }
 
-pub fn format_line(engine: &Engine, line: &str, out: &mut String) {
+pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
     let t = engine.tables();
     let mut words: Vec<Word> = Vec::with_capacity(line.split_whitespace().count());
     words.extend(line.split_whitespace().map(|tok| split_word(tok, t)));
-    join_meridiem(&mut words, t);
-    join_zone(&mut words, t);
-    drop_twelve(&mut words);
+    if engine.is_on(Setting::Letters) {
+        join_meridiem(&mut words, t);
+        join_zone(&mut words, t);
+    }
+    if engine.is_on(Setting::Noon) {
+        drop_twelve(&mut words);
+    }
     let counting = |core: &str| {
         let role = t.role_of[t.lexicon.lookup(core.as_bytes()).class as usize] & 0x0F;
         COUNTING_ROLES >> role & 1 == 1
@@ -339,7 +482,7 @@ fn push_raw(out: &mut String, words: &[Word]) {
 }
 
 fn render<'b>(
-    engine: &Engine,
+    engine: &Normalizer,
     words: &[Word],
     w: &Window,
     buf: &'b mut [u8; LINE_OUT],
@@ -356,7 +499,7 @@ fn render<'b>(
 }
 
 fn render_run(
-    engine: &Engine,
+    engine: &Normalizer,
     words: &[Word],
     run: &[Window],
     buf: &mut [u8; LINE_OUT],
@@ -379,14 +522,14 @@ fn words_first(t: &Tables, core: &str) -> bool {
     (t.words_first[(c >> 6) % WORDS_FIRST_WORDS] >> (c & 63)) & 1 == 1
 }
 
-fn digit_word(engine: &Engine, core: &str) -> bool {
+fn digit_word(engine: &Normalizer, core: &str) -> bool {
     let t = engine.tables();
     let info = t.lexicon.lookup(core.as_bytes());
-    engine.style() == Style::SingleDigits
+    engine.is_on(Setting::SingleDigits)
         && engine.is_digit_word(info.canonical, t.role_of[info.class as usize] & 0x0F)
 }
 
-fn format_segment(engine: &Engine, words: &[Word], out: &mut String, scratch: &mut Scratch) {
+fn format_segment(engine: &Normalizer, words: &[Word], out: &mut String, scratch: &mut Scratch) {
     let t = engine.tables();
     if let [only] = words
         && words_first(t, only.core)

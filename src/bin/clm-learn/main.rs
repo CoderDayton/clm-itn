@@ -6,7 +6,7 @@ use clm_itn::builder::learn::{
 };
 use clm_itn::builder::learned::{self, Learned};
 use clm_itn::builder::{Built, build};
-use clm_itn::engine::Engine;
+use clm_itn::engine::Normalizer;
 use clm_itn::engine::window::{format_line, windows};
 use clm_itn::tables::Tables;
 use clm_itn::types::TAU;
@@ -23,7 +23,7 @@ const DOMAIN_NAMES: [&str; 11] = [
     "money",
     "cents",
     "percent",
-    "negative",
+    "unused",
     "measure",
 ];
 
@@ -35,7 +35,7 @@ fn runtime_windows(n: usize, numeric: &dyn Fn(usize) -> bool) -> Vec<(usize, usi
 }
 
 fn runtime_format(t: &Tables, lines: &[String]) -> Vec<String> {
-    let engine = Engine::new(t);
+    let engine = Normalizer::new(t);
     lines
         .iter()
         .map(|l| {

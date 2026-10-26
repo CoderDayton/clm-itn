@@ -1,7 +1,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
-use clm_itn::engine::Engine;
+use clm_itn::engine::Normalizer;
 
 struct Counting;
 
@@ -39,10 +39,10 @@ fn counted<R>(f: impl FnOnce() -> R) -> (R, usize, usize) {
 
 #[test]
 fn engine_on_static_tables_allocates_nothing() {
-    let (engine, count, bytes) = counted(|| Engine::new(clm_itn::english()));
+    let (engine, count, bytes) = counted(|| Normalizer::new(clm_itn::english()));
     assert_eq!(
         count, 0,
-        "Engine::new made {count} allocations ({bytes} bytes)"
+        "Normalizer::new made {count} allocations ({bytes} bytes)"
     );
 
     let tokens: [&[u8]; 4] = [b"at", b"five", b"thirty", b"pm"];
@@ -55,7 +55,7 @@ fn engine_on_static_tables_allocates_nothing() {
 
 #[test]
 fn format_line_allocates_a_few_times_per_line() {
-    let engine = Engine::new(clm_itn::english());
+    let engine = Normalizer::new(clm_itn::english());
     let mut out = String::with_capacity(512);
     for (line, limit) in [
         ("meet me at five thirty pm in room four oh two", 3),

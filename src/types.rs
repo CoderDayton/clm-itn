@@ -1,4 +1,4 @@
-/// The most tokens one [`Engine::format`](crate::Engine::format) call takes.
+/// The most tokens one [`Normalizer::format`](crate::Normalizer::format) call takes.
 pub const MAX_TOKENS: usize = 8;
 pub const MAX_KEY_LEN: usize = 15;
 
@@ -40,7 +40,6 @@ pub const DOMAIN_PLAIN: DomainId = 5;
 pub const DOMAIN_MONEY: DomainId = 6;
 pub const DOMAIN_CENTS: DomainId = 7;
 pub const DOMAIN_PERCENT: DomainId = 8;
-pub const DOMAIN_NEGATIVE: DomainId = 9;
 pub const DOMAIN_MEASURE: DomainId = 10;
 pub const DOMAIN_MEASURE_POWER: DomainId = 11;
 pub const DOMAIN_MEASURE_PREFIX: DomainId = 12;
@@ -83,7 +82,7 @@ pub struct SpanReceipt {
     pub len: u8,
 }
 
-/// Why [`Engine::format`](crate::Engine::format) failed.
+/// Why [`Normalizer::format`](crate::Normalizer::format) failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FormatError {
@@ -105,6 +104,81 @@ impl core::fmt::Display for FormatError {
 }
 
 impl core::error::Error for FormatError {}
+
+/// A rewrite beyond writing numbers as digits. Every setting is on by default;
+/// switch one off with [`Normalizer::without`](crate::Normalizer::without).
+///
+/// New settings may be added, so a `match` on `Setting` needs a `_` arm.
+///
+/// ```
+/// use clm_itn::{Normalizer, Setting};
+///
+/// let plain = Normalizer::english().without(Setting::Percent);
+/// assert_eq!(plain.normalize("fifty percent off"), "50 percent off");
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Setting {
+    /// A lone 0–9 becomes a digit: "like 8 years". Off: "like eight years".
+    SingleDigits,
+    /// "percent" becomes `%`: "50%". Off: "50 percent".
+    Percent,
+    /// "dollars" and "cents" become `$`: "$5", "$4.50". Off: "5 dollars".
+    Currency,
+    /// A month date gets a capital and a comma before the year:
+    /// "July 4th, 1990". Off: "july 4th 1990".
+    Dates,
+    /// "seven a m e s t" → "7 am EST". Off: "7 a m e s t".
+    Letters,
+    /// "twelve noon" → "noon", "twelve midnight" → "midnight". Off: "12 noon".
+    Noon,
+    /// "oclock" is written "o'clock". Off: "5 oclock".
+    Oclock,
+    /// "fahrenheit" → "Fahrenheit", "centigrade" → "Celsius". Off: as spoken.
+    Temperature,
+}
+
+impl Setting {
+    /// Every setting, in declaration order.
+    pub const ALL: [Setting; 8] = [
+        Setting::SingleDigits,
+        Setting::Percent,
+        Setting::Currency,
+        Setting::Dates,
+        Setting::Letters,
+        Setting::Noon,
+        Setting::Oclock,
+        Setting::Temperature,
+    ];
+
+    /// The kebab-case name, as the `clm-itn --no-<name>` flags use it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Setting::SingleDigits => "single-digits",
+            Setting::Percent => "percent",
+            Setting::Currency => "currency",
+            Setting::Dates => "dates",
+            Setting::Letters => "letters",
+            Setting::Noon => "noon",
+            Setting::Oclock => "oclock",
+            Setting::Temperature => "temperature",
+        }
+    }
+
+    /// The setting with this [`name`](Self::name).
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Setting> {
+        Setting::ALL.into_iter().find(|s| s.name() == name)
+    }
+
+    pub(crate) const fn bit(self) -> SettingBits {
+        1 << self as u16
+    }
+}
+
+/// One bit per [`Setting`], at `1 << setting as u16`.
+pub(crate) type SettingBits = u16;
 
 #[cfg(test)]
 mod tests {

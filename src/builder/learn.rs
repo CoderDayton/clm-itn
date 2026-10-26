@@ -898,7 +898,7 @@ mod tests {
     }
 
     fn runtime_format(t: &Tables, lines: &[String]) -> Vec<String> {
-        let engine = crate::engine::Engine::new(t);
+        let engine = crate::engine::Normalizer::new(t);
         lines
             .iter()
             .map(|l| {

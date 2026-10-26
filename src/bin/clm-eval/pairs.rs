@@ -52,7 +52,7 @@ pub struct LinesOpts {
     pub path: String,
     pub tag: Option<String>,
     pub all_failures: bool,
-    pub single_digits: bool,
+    pub off: Vec<clm_itn::Setting>,
 }
 
 fn lines_opts(rest: &[String]) -> Result<LinesOpts, String> {
@@ -71,8 +71,13 @@ fn lines_opts(rest: &[String]) -> Result<LinesOpts, String> {
                 opts.all_failures = true;
                 t
             }
-            ("--single-digits", t) if !opts.single_digits => {
-                opts.single_digits = true;
+            (f, t)
+                if let Some(s) = f
+                    .strip_prefix("--no-")
+                    .and_then(clm_itn::Setting::from_name)
+                    && !opts.off.contains(&s) =>
+            {
+                opts.off.push(s);
                 t
             }
             ("--tag", [tag, t @ ..]) if opts.tag.is_none() && !tag.starts_with("--") => {
@@ -488,19 +493,20 @@ mod tests {
                 path: "d.tsv".into(),
                 tag: tag.map(Into::into),
                 all_failures: all,
-                single_digits: false,
+                off: Vec::new(),
             }))
         };
         assert_eq!(
-            args(&["--lines", "d.tsv", "--single-digits"]),
+            args(&["--lines", "d.tsv", "--no-single-digits"]),
             Ok(Mode::Lines(LinesOpts {
                 path: "d.tsv".into(),
                 tag: None,
                 all_failures: false,
-                single_digits: true,
+                off: vec![clm_itn::Setting::SingleDigits],
             }))
         );
-        assert!(args(&["--lines", "d.tsv", "--single-digits", "--single-digits"]).is_err());
+        assert!(args(&["--lines", "d.tsv", "--no-dates", "--no-dates"]).is_err());
+        assert!(args(&["--lines", "d.tsv", "--no-such-thing"]).is_err());
         assert_eq!(args(&["--lines", "d.tsv"]), opts(None, false));
         assert_eq!(
             args(&["--lines", "d.tsv", "--tag", "time"]),

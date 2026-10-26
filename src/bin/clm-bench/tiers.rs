@@ -35,7 +35,7 @@ impl StageSource for Unavailable {
     }
 }
 
-impl StageSource for clm_itn::engine::Engine<'_> {
+impl StageSource for clm_itn::engine::Normalizer<'_> {
     #[inline]
     fn profile(
         &self,
@@ -64,7 +64,9 @@ impl<S: StageSource + ?Sized> StageSource for &S {
     }
 }
 
-pub fn source<'e, 't>(engine: &'e clm_itn::engine::Engine<'t>) -> &'e clm_itn::engine::Engine<'t> {
+pub fn source<'e, 't>(
+    engine: &'e clm_itn::engine::Normalizer<'t>,
+) -> &'e clm_itn::engine::Normalizer<'t> {
     engine
 }
 
@@ -263,7 +265,7 @@ mod tests {
 
     #[test]
     fn engine_source_profiles_every_ok_window_and_matches_format() {
-        let engine = clm_itn::engine::Engine::new(clm_itn::english());
+        let engine = clm_itn::engine::Normalizer::new(clm_itn::english());
         let src = source(&engine);
         assert_eq!(src.unavailable(), None);
         let corpus = crate::corpus::Corpus::generate(500, 7);
