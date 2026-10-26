@@ -16,8 +16,41 @@ const TRAIL_PUNCT: &[char] = &[
     '\u{2026}', '\u{2013}', '\u{2014}',
 ];
 
+const fn ascii_mask(set: &[char]) -> u128 {
+    let mut mask = 0;
+    let mut i = 0;
+    while i < set.len() {
+        if set[i].is_ascii() {
+            mask |= 1 << set[i] as u32;
+        }
+        i += 1;
+    }
+    mask
+}
+
+const LEAD_ASCII: u128 = ascii_mask(LEAD_PUNCT);
+const TRAIL_ASCII: u128 = ascii_mask(TRAIL_PUNCT);
+
+/// Whether byte `b` is ASCII and not in `mask`; such a byte ends any trim.
+#[inline(always)]
+fn plain_ascii(b: u8, mask: u128) -> bool {
+    b.is_ascii() && mask >> b & 1 == 0
+}
+
+#[inline(always)]
+fn lead_punct(c: char) -> bool {
+    match u8::try_from(c) {
+        Ok(b) if b.is_ascii() => !plain_ascii(b, LEAD_ASCII),
+        _ => LEAD_PUNCT.contains(&c),
+    }
+}
+
+#[inline(always)]
 fn trail_punct(c: char) -> bool {
-    TRAIL_PUNCT.contains(&c)
+    match u8::try_from(c) {
+        Ok(b) if b.is_ascii() => !plain_ascii(b, TRAIL_ASCII),
+        _ => TRAIL_PUNCT.contains(&c),
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -63,7 +96,13 @@ fn tag<'a>(t: &Tables, lead: &'a str, core: &'a str, trail: &'a str) -> Word<'a>
 }
 
 fn split_word<'a>(token: &'a str, t: &Tables) -> Word<'a> {
-    let rest = token.trim_start_matches(LEAD_PUNCT);
+    let b = token.as_bytes();
+    if b.first().is_some_and(|&x| plain_ascii(x, LEAD_ASCII))
+        && b.last().is_some_and(|&x| plain_ascii(x, TRAIL_ASCII))
+    {
+        return tag(t, "", token, "");
+    }
+    let rest = token.trim_start_matches(lead_punct);
     let start = token.len() - rest.len();
     let end = start + rest.trim_end_matches(trail_punct).len();
     if (start == 0 && end == token.len()) || start == end {
@@ -204,7 +243,10 @@ const COUNTING_ROLES: u16 = 1 << ROLE_DIGIT
 const FILLERS: [&str; 6] = ["uh", "um", "er", "ah", "uhm", "hmm"];
 
 fn bare(core: &str) -> &str {
-    core.trim_end_matches(trail_punct)
+    match core.as_bytes().last() {
+        Some(&b) if plain_ascii(b, TRAIL_ASCII) => core,
+        _ => core.trim_end_matches(trail_punct),
+    }
 }
 
 fn guarded(words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<bool> {
@@ -723,6 +765,16 @@ fn windows_scaled_into(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn punct_checks_match_the_lists() {
+        for c in (0..0x3000).filter_map(char::from_u32) {
+            assert_eq!(lead_punct(c), LEAD_PUNCT.contains(&c), "{c:?}");
+            assert_eq!(trail_punct(c), TRAIL_PUNCT.contains(&c), "{c:?}");
+        }
+        assert_eq!(bare("them.\u{201D}"), "them");
+        assert_eq!(bare("them"), "them");
+    }
 
     fn split(numeric: &[bool]) -> Vec<Window> {
         windows(numeric.len(), |i| numeric[i])
