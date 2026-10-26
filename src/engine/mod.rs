@@ -12,10 +12,10 @@ use crate::tables::{Tables, WORDS_FIRST_WORDS};
 use core::fmt;
 
 use crate::types::{
-    CANDIDATE_NONE, CELL_ABSTAINED, CLASS_BOUNDARY, CLASS_UNKNOWN, CandidateId, DOMAIN_CARDINAL,
-    DOMAIN_COUNT, DOMAIN_IDENTIFIER, DOMAIN_ORDINAL, DOMAIN_PLAIN, DOMAIN_TIME, DomainId,
-    FormatError, MAX_TOKENS, ROLE_DIGIT, SHAPE_UNKNOWN, Setting, SettingBits, ShapeId, SpanReceipt,
-    TokenInfo, cell_index,
+    CANDIDATE_NONE, CELL_ABSTAINED, CLASS_BOUNDARY, CLASS_UNKNOWN, CandidateId, ClassId,
+    DOMAIN_CARDINAL, DOMAIN_COUNT, DOMAIN_IDENTIFIER, DOMAIN_ORDINAL, DOMAIN_PLAIN, DOMAIN_TIME,
+    DomainId, FormatError, MAX_TOKENS, ROLE_AMPM, ROLE_DIGIT, ROLE_MER, SHAPE_UNKNOWN, Setting,
+    SettingBits, ShapeId, SpanReceipt, TokenInfo, cell_index, cell_shape,
 };
 use span::{Affixes, Span, segment};
 
@@ -218,7 +218,8 @@ impl<'t> Normalizer<'t> {
                 let len = span.len as usize;
                 if let Some(pick) = self.choose(&span, &infos) {
                     let at = i..i + len;
-                    self.render_span(pick, &infos[at.clone()], &tokens[at], out, &mut pos)?;
+                    let soft = self.soft(span.left);
+                    self.render_span(pick, soft, &infos[at.clone()], &tokens[at], out, &mut pos)?;
                     let cell = pick.2;
                     receipts[rendered] = SpanReceipt {
                         cell,
@@ -325,7 +326,8 @@ impl<'t> Normalizer<'t> {
                 let len = span.len as usize;
                 if let Some(pick) = pick {
                     let at = i..i + len;
-                    self.render_span(pick, &infos[at.clone()], &tokens[at], out, &mut pos)?;
+                    let soft = self.soft(span.left);
+                    self.render_span(pick, soft, &infos[at.clone()], &tokens[at], out, &mut pos)?;
                     let cell = pick.2;
                     receipts[rendered] = SpanReceipt {
                         cell,
@@ -349,13 +351,25 @@ impl<'t> Normalizer<'t> {
     #[inline(always)]
     fn render_span(
         &self,
-        (domain, cand, _, lead, spoken_lead): Chosen,
+        (domain, cand, cell, lead, spoken_lead): Chosen,
+        soft: bool,
         infos: &[TokenInfo],
         tokens: &[&[u8]],
         out: &mut [u8],
         pos: &mut usize,
     ) -> Result<(), FormatError> {
         let c = &self.tables.candidates;
+        // "pm" or "o'clock" in the span is a firm cue of its own.
+        let soft = soft
+            && !infos.iter().any(|i| {
+                let role = self.tables.role_of[i.class as usize] & 0x0F;
+                role == ROLE_AMPM || role == ROLE_MER
+            });
+        let fallback = if cell == CELL_ABSTAINED || domain == DOMAIN_CARDINAL {
+            CANDIDATE_NONE
+        } else {
+            self.tables.cardinal_default[cell_shape(cell) as usize]
+        };
         let lead = lead as usize;
         let mut values = [0u32; MAX_TOKENS];
         for (v, info) in values.iter_mut().zip(infos) {
@@ -367,9 +381,9 @@ impl<'t> Normalizer<'t> {
         } else if lead > 0 {
             c.write_literal(values[0] as usize, out, pos)?;
         }
-        c.render(
+        c.render_or(
             domain,
-            cand,
+            (cand, fallback, soft),
             &values[lead..infos.len()],
             &tokens[lead..],
             out,
@@ -378,6 +392,12 @@ impl<'t> Normalizer<'t> {
         let last = infos.last().map_or(0, |i| i.canonical as usize);
         let plural = (self.tables.plural[(last >> 6) % WORDS_FIRST_WORDS] >> (last & 63)) & 1;
         put(out, pos, &b"s"[..plural as usize])
+    }
+
+    /// Whether `left` is a fold's class, a weak cue ("it was").
+    #[inline(always)]
+    fn soft(&self, left: ClassId) -> bool {
+        left != 0 && self.tables.left_folds.iter().any(|f| f[2] == left)
     }
 
     #[inline(always)]
@@ -398,6 +418,7 @@ impl<'t> Normalizer<'t> {
             connectors: self.tables.connector_roles,
             binds: self.tables.bind_roles,
             lead_skip: self.tables.lead_skip_roles,
+            folds: self.tables.left_folds,
         }
     }
 

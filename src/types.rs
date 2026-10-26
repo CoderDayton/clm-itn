@@ -1,5 +1,7 @@
 /// The most tokens one [`Normalizer::format`](crate::Normalizer::format) call takes.
 pub const MAX_TOKENS: usize = 8;
+/// Rows in `Tables::left_folds`.
+pub const MAX_LEFT_FOLDS: usize = 2;
 pub const MAX_KEY_LEN: usize = 15;
 
 pub type ClassId = u8;

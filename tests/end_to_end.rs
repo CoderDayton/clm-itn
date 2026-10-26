@@ -568,6 +568,78 @@ fn its_before_a_clock_reading_is_a_time() {
 }
 
 #[test]
+fn an_impossible_time_falls_back_to_the_plain_reading() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("it was nineteen ninety nine", "it was 1999"),
+            ("it is nineteen ninety nine", "it is 1999"),
+            ("at nineteen ninety nine", "at 1999"),
+            ("it was twelve sixty", "it was 1260"),
+            ("it was one ninety nine", "it was one ninety nine"),
+            ("it is nine sixty nine", "it is nine sixty nine"),
+            ("it's one ninety nine", "it's one ninety nine"),
+            ("it's nineteen ninety nine", "it's 1999"),
+            ("it was nine sixty nine pm", "it was 9:69 pm"),
+            ("at twelve sixty pm", "at 12:60 pm"),
+            ("at nine sixty nine pm", "at 9:69 pm"),
+            ("call at eight seventy five", "call at 8:75"),
+            ("at nine fifty nine", "at 9:59"),
+            ("at eleven forty five pm", "at 11:45 pm"),
+        ],
+    );
+}
+
+#[test]
+fn it_was_before_a_clock_reading_is_a_time_but_was_alone_is_not() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("it was five thirty", "it was 5:30"),
+            ("it was 5 thirty", "it was 5:30"),
+            ("It was eleven forty five.", "It was 11:45."),
+            ("it was twenty five dollars", "it was $25"),
+            ("it was five", "it was 5"),
+            ("it was ten to four", "it was ten to four"),
+            ("the score was five thirty", "the score was five thirty"),
+        ],
+    );
+}
+
+#[test]
+fn it_is_before_a_clock_reading_is_a_time_but_is_alone_is_not() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("it is five thirty", "it is 5:30"),
+            ("it is 5 thirty", "it is 5:30"),
+            ("It is eleven forty five.", "It is 11:45."),
+            (
+                "we all waited outside the store until it is eleven forty five",
+                "we all waited outside the store until it is 11:45",
+            ),
+            ("it is twenty five", "it is 25"),
+            ("it is ten to four", "it is ten to four"),
+            ("the score is five thirty", "the score is five thirty"),
+            ("is five thirty ok", "is five thirty ok"),
+            ("this is it five thirty", "this is it five thirty"),
+            ("what is twenty five", "what is 25"),
+        ],
+    );
+}
+
+#[test]
+fn a_window_edge_before_a_clock_reading_keeps_its_cue() {
+    check_lines(
+        &Normalizer::english(),
+        &[
+            ("a b c d e f it is five thirty", "a b c d e f it is 5:30"),
+            ("a b c d e f g at five thirty", "a b c d e f g at 5:30"),
+        ],
+    );
+}
+
+#[test]
 fn hundred_and_years_take_no_comma() {
     check_lines(
         &Normalizer::english(),

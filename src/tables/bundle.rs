@@ -4,7 +4,9 @@ use crate::tables::candidate::CandidateTable;
 use crate::tables::context::ContextLut;
 use crate::tables::lexicon::{self, Lexicon};
 use crate::tables::shape::{self, ShapeTable};
-use crate::types::{CELL_COUNT, CandidateId, DOMAIN_COUNT, Role, SHAPE_COUNT, SettingBits};
+use crate::types::{
+    CELL_COUNT, CandidateId, ClassId, DOMAIN_COUNT, MAX_LEFT_FOLDS, Role, SHAPE_COUNT, SettingBits,
+};
 
 pub const MAX_CANONICAL: usize = 4096;
 pub const WORDS_FIRST_WORDS: usize = MAX_CANONICAL / 64;
@@ -60,6 +62,10 @@ pub struct Tables {
     pub words_first_roles: u16,
     /// Roles a span never starts with, such as "am" in "i am five".
     pub lead_skip_roles: u16,
+    /// `[a, b, c]`: a span right after words of classes `a` and `b` takes `c`
+    /// as its left context ("it is" acts like "at"). The context table reads
+    /// `a` and `b` anywhere else as unknown. A zero row does nothing.
+    pub left_folds: [[ClassId; 3]; MAX_LEFT_FOLDS],
 }
 
 impl Tables {
@@ -92,6 +98,7 @@ impl Tables {
         bind_roles: 0,
         words_first_roles: 0,
         lead_skip_roles: 0,
+        left_folds: [[0; 3]; MAX_LEFT_FOLDS],
     };
 
     #[cfg(not(clm_no_std))]

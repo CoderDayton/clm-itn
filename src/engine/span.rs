@@ -1,4 +1,6 @@
-use crate::types::{CLASS_BOUNDARY, CLASS_UNKNOWN, ClassId, MAX_TOKENS, ROLE_NONE, Role};
+use crate::types::{
+    CLASS_BOUNDARY, CLASS_UNKNOWN, ClassId, MAX_LEFT_FOLDS, MAX_TOKENS, ROLE_NONE, Role,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Span {
@@ -23,6 +25,8 @@ pub struct Affixes {
     pub connectors: u16,
     pub binds: u16,
     pub lead_skip: u16,
+    /// See `Tables::left_folds`.
+    pub folds: [[ClassId; 3]; MAX_LEFT_FOLDS],
 }
 
 pub const MAX_SUFFIX: usize = 2;
@@ -123,6 +127,16 @@ pub fn segment(
     count
 }
 
+/// The left context of a span after the words `a b`: a fold's class when
+/// `a b` is a fold pair ("it is" reads as "at"), else `b`.
+#[inline(always)]
+pub fn fold_left(folds: &[[ClassId; 3]; MAX_LEFT_FOLDS], a: ClassId, b: ClassId) -> ClassId {
+    folds
+        .iter()
+        .find(|f| f[0] == a && f[1] == b && a != 0)
+        .map_or(b, |f| f[2])
+}
+
 fn piece(
     classes: &[ClassId],
     role_of: &[Role; 256],
@@ -135,10 +149,10 @@ fn piece(
     for (k, &c) in classes[start..i].iter().enumerate() {
         key |= u32::from(role_of[c as usize] & 0x0F) << (4 * k);
     }
-    let mut left = if start == 0 {
-        CLASS_BOUNDARY
-    } else {
-        classes[start - 1]
+    let mut left = match start {
+        0 => CLASS_BOUNDARY,
+        1 => classes[0],
+        _ => fold_left(&affixes.folds, classes[start - 2], classes[start - 1]),
     };
     let mut right = if i == n { CLASS_BOUNDARY } else { classes[i] };
     let mut core = i - start;
@@ -229,6 +243,7 @@ mod tests {
             connectors: 1 << ROLE_AND,
             binds: 1 << ROLE_HUNDRED,
             lead_skip: 1 << ROLE_AMPM,
+            folds: [[0; 3]; MAX_LEFT_FOLDS],
         };
         let n = segment(classes, &roles(), affixes, known, &mut out);
         out[..n].to_vec()

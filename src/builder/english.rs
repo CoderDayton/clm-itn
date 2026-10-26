@@ -1,7 +1,7 @@
 use crate::hash::next_seed;
 use crate::types::{
-    ClassId, DOMAIN_CENTS, DOMAIN_MEASURE, DOMAIN_MEASURE_POWER, DOMAIN_MEASURE_PREFIX,
-    DOMAIN_MONEY, DOMAIN_PERCENT, DomainId, Role, Setting,
+    CLASS_UNKNOWN, ClassId, DOMAIN_CENTS, DOMAIN_MEASURE, DOMAIN_MEASURE_POWER,
+    DOMAIN_MEASURE_PREFIX, DOMAIN_MONEY, DOMAIN_PERCENT, DomainId, Role, Setting,
 };
 
 pub const DIGIT: ClassId = 2;
@@ -43,6 +43,24 @@ pub const TEMP: ClassId = 37;
 pub const LABEL: ClassId = 38;
 /// "dot" between numbers, as in an IP address: the numbers are identifiers.
 pub const DOT: ClassId = 39;
+/// "it", "is" and "was" exist only to fold "it is" and "it was" into
+/// `SOFT_AT`; every other table read treats them as unknown words (see
+/// `ALIASES`).
+pub const IT: ClassId = 40;
+pub const IS: ClassId = 41;
+pub const WAS: ClassId = 42;
+/// "it's", or "it is" and "it was" folded. Reads like `AT`, but an impossible
+/// time after it is no time: "it was one ninety nine" stays words, where "at
+/// nine sixty nine" is `9:69`.
+pub const SOFT_AT: ClassId = 43;
+pub const LEFT_FOLDS: [[ClassId; 3]; 2] = [[IT, IS, SOFT_AT], [IT, WAS, SOFT_AT]];
+/// Classes whose context entries are copies of another class's.
+pub const ALIASES: [(ClassId, ClassId); 4] = [
+    (IT, CLASS_UNKNOWN),
+    (IS, CLASS_UNKNOWN),
+    (WAS, CLASS_UNKNOWN),
+    (SOFT_AT, AT),
+];
 pub const PER_UNITS: [ClassId; 5] = [UNIT, POWER, PREFIX, DEGREE, TEMP];
 pub const PAIR_ONLY: [ClassId; 2] = [DEGREE, TEMP];
 
@@ -448,8 +466,13 @@ pub const CLASSES: &[ClassDef] = &[
     ClassDef {
         class: AT,
         role: 0,
+        words: &[("at", 0)],
+    },
+    ClassDef {
+        class: SOFT_AT,
+        role: 0,
         // "it's five thirty" states the time now, like "at five thirty".
-        words: &[("at", 0), ("it's", 0), ("it’s", 0)],
+        words: &[("it's", 0), ("it’s", 0)],
     },
     ClassDef {
         class: OCLOCK,
@@ -521,6 +544,21 @@ pub const CLASSES: &[ClassDef] = &[
         class: DOT,
         role: 0,
         words: &[("dot", 0)],
+    },
+    ClassDef {
+        class: IT,
+        role: 0,
+        words: &[("it", 0)],
+    },
+    ClassDef {
+        class: IS,
+        role: 0,
+        words: &[("is", 0)],
+    },
+    ClassDef {
+        class: WAS,
+        role: 0,
+        words: &[("was", 0)],
     },
 ];
 

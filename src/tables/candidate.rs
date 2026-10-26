@@ -1,4 +1,6 @@
-use crate::types::{CandidateId, DOMAIN_COUNT, DomainId, FormatError};
+use crate::types::{
+    CANDIDATE_NONE, CandidateId, DOMAIN_CARDINAL, DOMAIN_COUNT, DomainId, FormatError,
+};
 
 pub const MAX_OPS: usize = 15;
 pub const FIELDS: usize = 4;
@@ -23,6 +25,9 @@ pub mod op {
     pub const SKIP: u8 = 7;
     pub const LITV: u8 = 8;
     pub const CHECK: u8 = 9;
+    /// Like `CHECK`, but a field out of range renders the fallback candidate
+    /// passed to `render_or` instead of the raw words ("19:99" is no time).
+    pub const FIT: u8 = 10;
 
     pub const fn encode(opcode: u8, a: u8, b: u8, c: u8) -> u32 {
         u32::from_le_bytes([opcode, a, b, c])
@@ -73,6 +78,10 @@ pub mod op {
 
     pub const fn check(field: u8, lo: u8, hi: u8) -> u32 {
         encode(CHECK, field, lo, hi)
+    }
+
+    pub const fn fit(field: u8, lo: u8, hi: u8) -> u32 {
+        encode(FIT, field, lo, hi)
     }
 }
 
@@ -214,8 +223,8 @@ impl CandidateTable {
             match opcode {
                 op::FOLD | op::DIGITS if field_ok => consumed += u32::from(b),
                 op::EMIT if field_ok && group <= op::GROUP_NOT_YEAR => {}
-                op::ORD | op::CHECK if field_ok => {}
-                op::FOLD | op::DIGITS | op::EMIT | op::ORD | op::CHECK => {
+                op::ORD | op::CHECK | op::FIT if field_ok => {}
+                op::FOLD | op::DIGITS | op::EMIT | op::ORD | op::CHECK | op::FIT => {
                     return Err(CandidateError::BadField { op: i });
                 }
                 op::LIT if (a as usize) < self.literal_count => {}
@@ -244,10 +253,64 @@ impl CandidateTable {
         out: &mut [u8],
         pos: &mut usize,
     ) -> Result<(), FormatError> {
+        self.render_or(domain, (id, CANDIDATE_NONE, false), values, raw, out, pos)
+    }
+
+    /// Renders candidate `id`; when a `FIT` fails, renders the cardinal
+    /// candidate `fallback` if it reads the same words. Else a `soft` cue keeps
+    /// the raw words ("it was one ninety nine"), and a firm one renders `id`
+    /// anyway ("at nine sixty nine pm" stays a time).
+    #[inline(always)]
+    pub fn render_or(
+        &self,
+        domain: DomainId,
+        (id, fallback, soft): (CandidateId, CandidateId, bool),
+        values: &[u32],
+        raw: &[&[u8]],
+        out: &mut [u8],
+        pos: &mut usize,
+    ) -> Result<(), FormatError> {
+        if self.run(domain, id, values, raw, out, pos, true)? {
+            return Ok(());
+        }
+        let same = self.span_len(DOMAIN_CARDINAL, fallback) == self.span_len(domain, id);
+        let start = *pos;
+        if fallback != CANDIDATE_NONE
+            && same
+            && self.run(DOMAIN_CARDINAL, fallback, values, raw, out, pos, true)?
+        {
+            // A plain reading that is only the spoken words is no reading.
+            if !is_spoken(&out[start..*pos], raw) {
+                return Ok(());
+            }
+            *pos = start;
+        }
+        if soft {
+            return write_joined(out, pos, raw);
+        }
+        self.run(domain, id, values, raw, out, pos, false)
+            .map(|_| ())
+    }
+
+    /// Runs one candidate. `Ok(false)`: a `FIT` failed under `strict` and
+    /// nothing was written.
+    #[allow(clippy::too_many_arguments)] // private; a struct would only rename them
+    #[inline(always)]
+    fn run(
+        &self,
+        domain: DomainId,
+        id: CandidateId,
+        values: &[u32],
+        raw: &[&[u8]],
+        out: &mut [u8],
+        pos: &mut usize,
+        strict: bool,
+    ) -> Result<bool, FormatError> {
         let c = &self.records[row(domain)][id as usize];
         let count = (c.op_count as usize).min(MAX_OPS);
         let mut fields = [0u64; FIELDS];
         let mut ok = true;
+        let mut fits = true;
         let mut w = *pos;
         let mut t = 0usize;
         for &word in &c.ops[..count] {
@@ -262,6 +325,10 @@ impl CandidateTable {
                 op::CHECK => {
                     let [_, _, _, hi] = word.to_le_bytes();
                     ok &= (u64::from(b)..=u64::from(hi)).contains(&fields[f]);
+                }
+                op::FIT => {
+                    let [_, _, _, hi] = word.to_le_bytes();
+                    fits &= (u64::from(b)..=u64::from(hi)).contains(&fields[f]);
                 }
                 op::DIGITS => {
                     for &v in take(values, &mut t, b) {
@@ -290,12 +357,15 @@ impl CandidateTable {
                 _ => {}
             }
         }
+        if strict && !fits {
+            return Ok(false);
+        }
         if !ok {
             w = *pos;
             write_joined(out, &mut w, raw)?;
         }
         *pos = w;
-        Ok(())
+        Ok(true)
     }
 
     #[inline(always)]
@@ -385,6 +455,24 @@ fn write_joined(out: &mut [u8], w: &mut usize, texts: &[&[u8]]) -> Result<(), Fo
         write(out, w, text)?;
     }
     Ok(())
+}
+
+/// Whether `text` is `words` joined by single spaces, as `write_joined` writes them.
+fn is_spoken(text: &[u8], words: &[&[u8]]) -> bool {
+    let mut rest = text;
+    for (i, word) in words.iter().enumerate() {
+        if i > 0 {
+            let Some(r) = rest.strip_prefix(b" ") else {
+                return false;
+            };
+            rest = r;
+        }
+        let Some(r) = rest.strip_prefix(*word) else {
+            return false;
+        };
+        rest = r;
+    }
+    rest.is_empty()
 }
 
 #[inline(always)]
@@ -793,6 +881,50 @@ mod tests {
     }
 
     #[test]
+    fn fit_out_of_range_renders_the_fallback_else_the_candidate_anyway() {
+        let mut t = CandidateTable::new();
+        let time = [
+            op::fold(0, 1),
+            op::fold(1, 1),
+            op::fit(1, 0, 59),
+            op::emit(0, 0),
+            op::emit(1, 3),
+        ];
+        let plain = [
+            op::fold(0, 1),
+            op::fold(1, 1),
+            op::emit(0, 0),
+            op::emit(1, 2),
+        ];
+        t.set(D, 1, Candidate::new(2, &time));
+        t.set(DOMAIN_CARDINAL, 2, Candidate::new(2, &plain));
+        t.set(
+            DOMAIN_CARDINAL,
+            3,
+            Candidate::new(1, &[op::fold(0, 1), op::emit(0, 0)]),
+        );
+        assert_eq!(t.validate(D, 1), Ok(()));
+        let go = |fallback, values: &[u32]| {
+            let mut out = [0u8; 16];
+            let mut pos = 0;
+            t.render_or(
+                D,
+                (1, fallback, false),
+                values,
+                &[b"w", b"w"],
+                &mut out,
+                &mut pos,
+            )
+            .expect("render");
+            String::from_utf8(out[..pos].to_vec()).expect("utf8")
+        };
+        assert_eq!(go(2, &[5, 30]), "5030");
+        assert_eq!(go(2, &[19, 99]), "1999");
+        assert_eq!(go(CANDIDATE_NONE, &[19, 99]), "19099");
+        assert_eq!(go(3, &[19, 99]), "19099");
+    }
+
+    #[test]
     fn validate_rejects_litv_past_the_span() {
         let mut t = CandidateTable::new();
         t.set(D, 1, Candidate::new(1, &[op::litv(1), op::raw(1)]));
@@ -850,7 +982,7 @@ mod tests {
         t.set(
             D,
             9,
-            Candidate::new(1, &[op::raw(1), op::encode(10, 0, 0, 0)]),
+            Candidate::new(1, &[op::raw(1), op::encode(11, 0, 0, 0)]),
         );
         assert_eq!(
             t.validate(D, 9),

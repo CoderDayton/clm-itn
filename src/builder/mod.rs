@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use crate::engine::span::MAX_SUFFIX;
 use crate::tables::candidate::{Candidate, CandidateError, CandidateTable, op};
 use crate::tables::cell::{pack, unpack};
-use crate::tables::context::pack_entry;
+use crate::tables::context::{ContextLut, pack_entry};
 use crate::tables::lexicon::{self, Lexicon};
 use crate::tables::shape::{ShapeBuildError, ShapeTable, shape_key};
 use crate::tables::{MAX_CANONICAL, Tables};
@@ -252,6 +252,10 @@ fn build_lexicon(
 }
 
 const AFFIX_SPREAD: f64 = 0.01;
+/// Clock fields out of these ranges are no time ("19:99"): the span reads as
+/// a plain number instead.
+const MAX_HOUR: u8 = 23;
+const MAX_MINUTE: u8 = 59;
 const CLOCK_ROLES: [Role; 2] = [english::ROLE_MER, english::ROLE_AMPM];
 const NOT_AMOUNT: [Role; 5] = [
     english::ROLE_MER,
@@ -363,6 +367,7 @@ pub fn build(learned: &Learned) -> Result<Built, BuildError> {
     t.bind_roles = english::BIND_ROLES;
     t.words_first_roles = 1 << english::ROLE_ORDINAL;
     t.lead_skip_roles = english::LEAD_SKIP_ROLES;
+    t.left_folds = english::LEFT_FOLDS;
     for w in english::PLURAL {
         let c = t.lexicon.lookup(w.as_bytes()).canonical as usize;
         t.plural[c / 64] |= 1 << (c % 64);
@@ -412,6 +417,7 @@ pub fn build(learned: &Learned) -> Result<Built, BuildError> {
             }
         }
     }
+    alias(&mut b.tables.context, &english::ALIASES);
 
     b.stats = BuildStats {
         lexicon_entries: entries,
@@ -427,6 +433,19 @@ pub fn build(learned: &Learned) -> Result<Built, BuildError> {
     b.tables.candidates = *pool.table;
     validate(&b.tables)?;
     Ok(b)
+}
+
+/// Gives each `(class, like)` the context entries of `like`: fold words read
+/// as unknown words, and a fold's class reads as its cue.
+fn alias(context: &mut ContextLut, aliases: &[(ClassId, ClassId)]) {
+    let raw = *context.as_raw();
+    let at = |l: ClassId, r: ClassId| raw[(l as usize) << 8 | r as usize];
+    let read = |c: ClassId| aliases.iter().find(|a| a.0 == c).map_or(c, |a| a.1);
+    for l in 0..=255u8 {
+        for r in 0..=255u8 {
+            context.set(l, r, at(read(l), read(r)));
+        }
+    }
 }
 
 fn mark_settings(t: &mut Tables) {
@@ -804,9 +823,9 @@ impl Pool {
         use english::{ROLE_AMPM, ROLE_MER};
         let n = roles.len();
         if n >= 2 && roles[n - 1] == ROLE_AMPM {
-            let mut ops = vec![op::fold(0, 1)];
+            let mut ops = vec![op::fold(0, 1), op::fit(0, 0, MAX_HOUR)];
             if n > 2 {
-                ops.push(op::fold(1, (n - 2) as u8));
+                ops.extend([op::fold(1, (n - 2) as u8), op::fit(1, 0, MAX_MINUTE)]);
             }
             ops.push(op::emit(0, hour_width));
             if n > 2 {
@@ -820,9 +839,9 @@ impl Pool {
         }
         let mer = if roles[n - 2] == ROLE_MER { 2 } else { 1 };
         let body = n - mer;
-        let mut ops = vec![op::fold(0, 1)];
+        let mut ops = vec![op::fold(0, 1), op::fit(0, 0, MAX_HOUR)];
         if body > 1 {
-            ops.push(op::fold(1, (body - 1) as u8));
+            ops.extend([op::fold(1, (body - 1) as u8), op::fit(1, 0, MAX_MINUTE)]);
         }
         ops.push(op::emit(0, hour_width));
         if body > 1 {
@@ -1181,6 +1200,8 @@ impl Pool {
             let ops = [
                 op::fold(0, 1),
                 op::fold(1, (n - 1) as u8),
+                op::fit(0, 0, MAX_HOUR),
+                op::fit(1, 0, MAX_MINUTE),
                 op::emit(0, hour_width),
                 op::lit(sep),
                 op::emit(1, 2),
@@ -2066,6 +2087,8 @@ mod tests {
         let padded = vec![
             op::fold(0, 1),
             op::fold(1, 1),
+            op::fit(0, 0, MAX_HOUR),
+            op::fit(1, 0, MAX_MINUTE),
             op::emit(0, 2),
             op::lit(pool.colon),
             op::emit(1, 2),

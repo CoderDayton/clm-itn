@@ -3,6 +3,7 @@ use alloc::vec::Vec;
 use alloc::{format, vec};
 
 use crate::engine::Normalizer;
+use crate::engine::span::fold_left;
 use crate::tables::{Tables, WORDS_FIRST_WORDS};
 use crate::types::{
     CLASS_UNKNOWN, ClassId, MAX_TOKENS, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE, ROLE_OH,
@@ -60,19 +61,72 @@ struct Word<'a> {
     trail: &'a str,
     /// What the word prints when kept as spoken; empty prints nothing.
     said: &'a str,
-    numeric: bool,
-    value: bool,
-    filler: bool,
-    digits: bool,
-    /// "one" to "nine", "zero" or "oh".
-    digit: bool,
-    ordinal: bool,
-    /// A segment ends after this word.
-    cut: bool,
-    /// A lone ordinal starting here is written as digits.
-    dated: bool,
+    /// `W_*` bits.
+    flags: u16,
     /// See `kind`.
     kind: u8,
+}
+
+const W_NUMERIC: u16 = 1;
+const W_VALUE: u16 = 1 << 1;
+const W_FILLER: u16 = 1 << 2;
+const W_DIGITS: u16 = 1 << 3;
+/// "one" to "nine", "zero" or "oh".
+const W_DIGIT: u16 = 1 << 4;
+const W_ORDINAL: u16 = 1 << 5;
+/// A segment ends after this word.
+const W_CUT: u16 = 1 << 6;
+/// A lone ordinal starting here is written as digits.
+const W_DATED: u16 = 1 << 7;
+/// Printed as spoken, never formatted.
+const W_KEEP: u16 = 1 << 8;
+
+impl Word<'_> {
+    #[inline(always)]
+    fn has(&self, bit: u16) -> bool {
+        self.flags & bit != 0
+    }
+    #[inline(always)]
+    fn numeric(&self) -> bool {
+        self.has(W_NUMERIC)
+    }
+    #[inline(always)]
+    fn value(&self) -> bool {
+        self.has(W_VALUE)
+    }
+    #[inline(always)]
+    fn filler(&self) -> bool {
+        self.has(W_FILLER)
+    }
+    #[inline(always)]
+    fn all_digits(&self) -> bool {
+        self.has(W_DIGITS)
+    }
+    #[inline(always)]
+    fn digit(&self) -> bool {
+        self.has(W_DIGIT)
+    }
+    #[inline(always)]
+    fn ordinal(&self) -> bool {
+        self.has(W_ORDINAL)
+    }
+    #[inline(always)]
+    fn cut(&self) -> bool {
+        self.has(W_CUT)
+    }
+    #[inline(always)]
+    fn dated(&self) -> bool {
+        self.has(W_DATED)
+    }
+    #[inline(always)]
+    fn keep(&self) -> bool {
+        self.has(W_KEEP)
+    }
+}
+
+#[inline(always)]
+fn bit(on: bool, bit: u16) -> u16 {
+    u16::from(on) * bit
 }
 
 fn tag_class<'a>(
@@ -90,14 +144,18 @@ fn tag_class<'a>(
         core,
         trail,
         said: core,
-        numeric: full != 0,
-        value: role != 0 && (t.suffix_roles | t.prefix_roles) >> role & 1 == 0,
-        filler: FILLERS.iter().any(|f| f.eq_ignore_ascii_case(b)),
-        digits: !b.is_empty() && b.bytes().all(|c| c.is_ascii_digit()),
-        digit: role == ROLE_DIGIT || role == ROLE_OH,
-        ordinal: role == ROLE_ORDINAL,
-        cut: false,
-        dated: false,
+        flags: bit(full != 0, W_NUMERIC)
+            | bit(
+                role != 0 && (t.suffix_roles | t.prefix_roles) >> role & 1 == 0,
+                W_VALUE,
+            )
+            | bit(FILLERS.iter().any(|f| f.eq_ignore_ascii_case(b)), W_FILLER)
+            | bit(
+                !b.is_empty() && b.bytes().all(|c| c.is_ascii_digit()),
+                W_DIGITS,
+            )
+            | bit(role == ROLE_DIGIT || role == ROLE_OH, W_DIGIT)
+            | bit(role == ROLE_ORDINAL, W_ORDINAL),
         kind: kind(b),
     }
 }
@@ -141,7 +199,7 @@ fn join_meridiem(words: &mut Vec<Word<'_>>, t: &Tables) {
     let mut put = 0;
     let mut i = 0;
     while i < words.len() {
-        let after_number = put > 0 && words[put - 1].trail.is_empty() && words[put - 1].numeric;
+        let after_number = put > 0 && words[put - 1].trail.is_empty() && words[put - 1].numeric();
         let w = &words[i];
         let joined = (after_number && w.lead.is_empty() && w.trail.is_empty())
             .then(|| words.get(i + 1))
@@ -196,7 +254,7 @@ fn join_zone(words: &mut Vec<Word<'_>>, t: &Tables) {
     while i < words.len() {
         let after_time = put > 0 && {
             let p = &words[put - 1];
-            p.trail.is_empty() && (p.core == "am" || p.core == "pm" || p.core == "m" || p.numeric)
+            p.trail.is_empty() && (p.core == "am" || p.core == "pm" || p.core == "m" || p.numeric())
         };
         let joined = (after_time && i + 3 <= words.len())
             .then(|| &words[i..i + 3])
@@ -275,18 +333,20 @@ fn bare(core: &str) -> &str {
     }
 }
 
-fn guarded(words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<bool> {
+/// Ranges of words that stay as spoken. Most lines have none, so this
+/// rarely allocates.
+fn guarded(words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<(usize, usize)> {
     let n = words.len();
-    let num = |i: usize| words[i].value;
-    let filler = |i: usize| words[i].filler;
-    let digits = |i: usize| words[i].digits;
+    let num = |i: usize| words[i].value();
+    let filler = |i: usize| words[i].filler();
+    let digits = |i: usize| words[i].all_digits();
     let plural = |i: usize| {
         let b = bare(words[i].core);
         let stem = b.strip_suffix("'s").or_else(|| b.strip_suffix('s'));
         !num(i) && stem.is_some_and(|s| !s.is_empty() && counting(s))
     };
-    let mut keep = vec![false; n];
-    let mut mark = |from: usize, to: usize| keep[from..=to].fill(true);
+    let mut marks = Vec::new();
+    let mut mark = |from: usize, to: usize| marks.push((from, to));
     let run_left = |mut i: usize, ok: &dyn Fn(usize) -> bool| {
         while i > 0 && ok(i - 1) {
             i -= 1;
@@ -341,7 +401,7 @@ fn guarded(words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<bool> {
             mark(from, to);
         }
         if let Some(end) = mixed_fraction(words, i) {
-            let j = if i > 0 && !num(i - 1) && words[i - 1].numeric {
+            let j = if i > 0 && !num(i - 1) && words[i - 1].numeric() {
                 i - 1
             } else {
                 i
@@ -351,7 +411,7 @@ fn guarded(words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<bool> {
             }
         }
     }
-    keep
+    marks
 }
 
 const FRACTION_WORDS: [&str; 14] = [
@@ -418,7 +478,7 @@ fn word_sense(words: &[Word], i: usize) -> Option<(usize, usize)> {
         open.then(|| &words[k])
     };
     let text = |d: isize| at(d).map_or("", |w| bare(w.core));
-    let numeric = |d: isize| at(d).is_some_and(|w| w.numeric);
+    let numeric = |d: isize| at(d).is_some_and(|w| w.numeric());
     if numeric(-1) {
         return None;
     }
@@ -479,13 +539,13 @@ fn relative_time(words: &[Word], i: usize) -> Option<(usize, usize)> {
     };
     let plain = |k: usize| words[k].lead.is_empty() && words[k].trail.is_empty();
     let h = i + 1;
-    if i == 0 || h >= words.len() || !words[h].value || !plain(i) || !is(i, &RELATIVE) {
+    if i == 0 || h >= words.len() || !words[h].value() || !plain(i) || !is(i, &RELATIVE) {
         return None;
     }
     if !words[h].lead.is_empty() || !is(h, &HOURS) {
         return None;
     }
-    if h + 1 < words.len() && words[h].trail.is_empty() && words[h + 1].numeric {
+    if h + 1 < words.len() && words[h].trail.is_empty() && words[h + 1].numeric() {
         return None;
     }
     let m = i - 1;
@@ -499,7 +559,7 @@ fn relative_time(words: &[Word], i: usize) -> Option<(usize, usize)> {
     } else {
         return None;
     };
-    if from > 0 && words[from - 1].value && words[from - 1].trail.is_empty() {
+    if from > 0 && words[from - 1].value() && words[from - 1].trail.is_empty() {
         return None;
     }
     let c = if from > 0 && is(from, &["quarter"]) && is(from - 1, &["a"]) && plain(from - 1) {
@@ -560,8 +620,6 @@ const K_MONTH_VERB: u8 = 9;
 /// "1" to "12" written as digits.
 const K_CLOCK_DIGITS: u8 = 10;
 const K_HUNDREDS: u8 = 11;
-/// Printed as spoken, never formatted.
-const K_HELD: u8 = 12;
 
 const HOUR_WORDS: [&str; 12] = [
     "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
@@ -626,24 +684,24 @@ fn kind(core: &str) -> u8 {
 /// them. Each bit is a superset of its pass.
 fn features(words: &[Word]) -> u8 {
     let mut f = 0;
-    let number = |w: Option<&Word>| w.is_some_and(|w| w.numeric || w.digits);
+    let number = |w: Option<&Word>| w.is_some_and(|w| w.numeric() || w.all_digits());
     for (k, w) in words.iter().enumerate().filter(|(_, w)| w.kind != 0) {
         let prev = k.checked_sub(1).map(|j| &words[j]);
         let next = words.get(k + 1);
-        let digit = |w: Option<&Word>| w.is_some_and(|w| w.digit);
+        let digit = |w: Option<&Word>| w.is_some_and(|w| w.digit());
         f |= match w.kind {
             K_A if next.is_some_and(|n| SCALE_WORDS.iter().any(|s| is(n, s)) || unit(n)) => {
                 F_EXPAND
             }
             K_CLOCK_DIGITS if next.is_some_and(minutes) => F_EXPAND,
-            K_HUNDREDS if prev.is_some_and(|p| p.value) => F_EXPAND,
+            K_HUNDREDS if prev.is_some_and(|p| p.value()) => F_EXPAND,
             K_MONTH_VERB if prev.is_some_and(|p| VERB_SUBJECTS.iter().any(|s| is(p, s))) => F_VERBS,
             K_LETTER if number(prev) || number(next) => F_LETTERS,
-            K_OF if prev.is_some_and(|p| p.ordinal) => F_CUTS,
+            K_OF if prev.is_some_and(|p| p.ordinal()) => F_CUTS,
             K_PER | K_DOUBLE => F_EXPAND,
             K_DOT => F_DOTS,
             K_HUNDRED if digit(prev) && digit(next) => F_PHONE,
-            K_STREET if prev.is_some_and(|p| p.value) || k >= 2 && words[k - 2].value => F_CUTS,
+            K_STREET if prev.is_some_and(|p| p.value()) || k >= 2 && words[k - 2].value() => F_CUTS,
             _ => 0,
         };
     }
@@ -652,12 +710,12 @@ fn features(words: &[Word]) -> u8 {
 
 /// A unit or currency word. "a hundred percent" is an idiom, so not percent.
 fn unit(w: &Word) -> bool {
-    w.numeric && !w.value && !is(w, "percent")
+    w.numeric() && !w.value() && !is(w, "percent")
 }
 
 /// A word that can be the minutes of "5 thirty": not a digit or a scale.
 fn minutes(w: &Word) -> bool {
-    w.value && (!w.digit || is(w, "oh")) && !SCALE_WORDS.iter().any(|s| is(w, s))
+    w.value() && (!w.digit() || is(w, "oh")) && !SCALE_WORDS.iter().any(|s| is(w, s))
 }
 
 /// "we march five miles", "it may first be noticed": after a subject or a
@@ -672,14 +730,14 @@ fn verb_months(words: &mut [Word]) {
         if !verb {
             continue;
         }
-        words[k].kind = K_HELD;
+        words[k].flags |= W_KEEP;
         if is(&w, "may")
             && let Some(n) = words.get_mut(k + 1)
             && w.trail.is_empty()
             && n.lead.is_empty()
             && (is(n, "first") || is(n, "one"))
         {
-            n.kind = K_HELD;
+            n.flags |= W_KEEP;
         }
     }
 }
@@ -697,15 +755,15 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
         let after = next.and(at(i + 2));
         let small_scale = next.is_some_and(|n| is(&n, "hundred") || is(&n, "thousand"));
         let counts_on = after.is_some_and(|a| {
-            (a.value && !SCALE_WORDS.iter().any(|s| is(&a, s)))
-                || (is(&a, "and") && at(i + 3).is_some_and(|b| b.value))
+            (a.value() && !SCALE_WORDS.iter().any(|s| is(&a, s)))
+                || (is(&a, "and") && at(i + 3).is_some_and(|b| b.value()))
                 || (small_scale && unit(&a))
         });
-        let priced = next.is_some_and(|n| unit(&n)) && after.is_some_and(|a| a.value);
+        let priced = next.is_some_and(|n| unit(&n)) && after.is_some_and(|a| a.value());
         let century = next
             .filter(|n| n.kind == K_HUNDREDS)
             .and(TEEN_WORDS.iter().position(|s| is(&w, s)));
-        let after_number = out.last().is_some_and(|p| p.value && p.trail.is_empty());
+        let after_number = out.last().is_some_and(|p| p.value() && p.trail.is_empty());
         match next {
             Some(n) if percent && is(&w, "per") && is(&n, "cent") && after_number => {
                 let joined = tag(t, w.lead, "percent", n.trail);
@@ -715,7 +773,7 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
                 });
                 i += 2;
             }
-            Some(n) if n.digit && (is(&w, "double") || is(&w, "triple")) => {
+            Some(n) if n.digit() && (is(&w, "double") || is(&w, "triple")) => {
                 let copies = if is(&w, "double") { 1 } else { 2 };
                 for k in 0..copies {
                     out.push(Word {
@@ -773,8 +831,8 @@ fn phone_hundreds<'a>(words: Vec<Word<'a>>, t: &Tables) -> Vec<Word<'a>> {
         is(&words[k], "hundred")
             && k > 0
             && k + 1 < n
-            && words[k - 1].digit
-            && words[k + 1].digit
+            && words[k - 1].digit()
+            && words[k + 1].digit()
             && open(&words[k - 1], &words[k])
             && open(&words[k], &words[k + 1])
     };
@@ -782,14 +840,16 @@ fn phone_hundreds<'a>(words: Vec<Word<'a>>, t: &Tables) -> Vec<Word<'a>> {
     let mut i = 0;
     while i < n {
         let mut j = i;
-        while j < n && (words[j].digit || hundred(j)) && (j == i || open(&words[j - 1], &words[j]))
+        while j < n
+            && (words[j].digit() || hundred(j))
+            && (j == i || open(&words[j - 1], &words[j]))
         {
             j += 1;
         }
-        let digits = (i..j).filter(|&k| words[k].digit).count();
+        let digits = (i..j).filter(|&k| words[k].digit()).count();
         if digits >= MIN_PHONE_DIGITS {
             (i..j)
-                .filter(|&k| !words[k].digit)
+                .filter(|&k| !words[k].digit())
                 .for_each(|k| zeros[k] = true);
         }
         i = j.max(i + 1);
@@ -830,34 +890,33 @@ fn cuts(words: &mut [Word]) {
     let n = words.len();
     let linked = |words: &[Word], k: usize| k + 1 < n && open(&words[k], &words[k + 1]);
     for i in 0..n {
-        let run_start = i == 0 || !words[i - 1].value || !linked(words, i - 1);
-        if words[i].value && run_start {
+        let run_start = i == 0 || !words[i - 1].value() || !linked(words, i - 1);
+        if words[i].value() && run_start {
             let mut j = i;
-            while j + 1 < n && words[j + 1].value && linked(words, j) {
+            while j + 1 < n && words[j + 1].value() && linked(words, j) {
                 j += 1;
             }
             let street = (j + 1..(j + 3).min(n))
                 .take_while(|&k| linked(words, k - 1))
                 .any(|k| words[k].kind == K_STREET);
             if street && i > 0 {
-                words[i - 1].cut = true;
+                words[i - 1].flags |= W_CUT;
             }
         }
-        let month = (i + 2 < n && words[i].ordinal && is(&words[i + 1], "of"))
+        let month = (i + 2 < n && words[i].ordinal() && is(&words[i + 1], "of"))
             .then(|| MONTHS.iter().copied().find(|m| is(&words[i + 2], m)))
             .flatten()
             .filter(|_| linked(words, i) && linked(words, i + 1));
         if let Some(m) = month {
-            let in_date = words.get(i + 3).is_some_and(|w| w.value) && linked(words, i + 2);
+            let in_date = words.get(i + 3).is_some_and(|w| w.value()) && linked(words, i + 2);
             words[i + 2].said = m;
             if !in_date {
                 words[i + 2].core = m;
             }
             if run_start {
-                words[i].dated = true;
-                words[i].cut = true;
+                words[i].flags |= W_DATED | W_CUT;
                 if i > 0 {
-                    words[i - 1].cut = true;
+                    words[i - 1].flags |= W_CUT;
                 }
             }
         }
@@ -887,11 +946,11 @@ fn bare_hundreds(segment: &[Word], next: Option<&Word>) -> bool {
     };
     let tail = &segment[h + 1..];
     let tail_ok = tail.is_empty()
-        || (tail.len() >= 2 && is(&tail[0], "and") && tail[1..].iter().all(|w| w.value));
+        || (tail.len() >= 2 && is(&tail[0], "and") && tail[1..].iter().all(|w| w.value()));
     let x = h.checked_sub(1).map(|k| &segment[k]);
-    let lead = h >= 2 && segment[h - 2].value;
+    let lead = h >= 2 && segment[h - 2].value();
     tail_ok
-        && x.is_some_and(|x| x.value && !x.digit)
+        && x.is_some_and(|x| x.value() && !x.digit())
         && !lead
         && (!last.trail.is_empty() || next.is_none_or(|n| is(n, "hours")))
 }
@@ -969,7 +1028,8 @@ fn join_letters(out: &mut String, begin: usize) {
 pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
     let t = engine.tables();
     let begin = out.len();
-    let mut words: Vec<Word> = Vec::with_capacity(line.split_whitespace().count() + 2);
+    let spaces = line.bytes().filter(|&b| b == b' ').count();
+    let mut words: Vec<Word> = Vec::with_capacity(spaces + 3);
     for tok in line.split_whitespace() {
         let w = split_word(tok, t);
         match hyphenated(&w, t) {
@@ -1002,14 +1062,13 @@ pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
         let role = t.role_of[t.lexicon.lookup(core.as_bytes()).class as usize] & 0x0F;
         COUNTING_ROLES >> role & 1 == 1
     };
-    let mut keep = guarded(&words, counting);
-    if f & F_VERBS != 0 {
-        for (k, w) in keep.iter_mut().zip(&words) {
-            *k |= w.kind == K_HELD;
+    for (from, to) in guarded(&words, counting) {
+        for w in &mut words[from..=to] {
+            w.flags |= W_KEEP;
         }
     }
     let mut scratch = Scratch {
-        windows: Vec::new(),
+        windows: WindowBuf::new(),
         buf: [0u8; LINE_OUT],
     };
     let mut start = 0;
@@ -1017,8 +1076,8 @@ pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
         let last = i + 1 == words.len()
             || !words[i].trail.is_empty()
             || !words[i + 1].lead.is_empty()
-            || keep[i] != keep[i + 1]
-            || words[i].cut;
+            || words[i].keep() != words[i + 1].keep()
+            || words[i].cut();
         if !last {
             continue;
         }
@@ -1028,10 +1087,10 @@ pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
         out.push_str(words[start].lead);
         let body = out.len();
         let segment = &words[start..=i];
-        if keep[i] || (start == i && counting_list(&words, i)) {
+        if words[i].keep() || (start == i && counting_list(&words, i)) {
             push_raw(out, segment);
         } else {
-            format_segment(engine, segment, words[start].dated, out, &mut scratch);
+            format_segment(engine, segment, words[start].dated(), out, &mut scratch);
             if bare_hundreds(segment, words.get(i + 1)) {
                 ungroup_last(out, body);
             }
@@ -1049,12 +1108,12 @@ pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
 
 /// "twenty-five" -> "twenty" "five", printing "twenty-five" if kept as words.
 fn hyphenated<'a>(w: &Word<'a>, t: &Tables) -> Option<(Word<'a>, Word<'a>)> {
-    if w.numeric || w.core.len() < 7 {
+    if w.numeric() || w.core.len() < 7 {
         return None;
     }
     let (a, b) = w.core.split_once('-')?;
     let (a, b) = (tag(t, w.lead, a, ""), tag(t, "", b, w.trail));
-    (a.value && b.value).then_some((Word { said: w.core, ..a }, Word { said: "", ..b }))
+    (a.value() && b.value()).then_some((Word { said: w.core, ..a }, Word { said: "", ..b }))
 }
 
 /// "One, two, three, go.": lone number words in a row, each closed by
@@ -1062,7 +1121,7 @@ fn hyphenated<'a>(w: &Word<'a>, t: &Tables) -> Option<(Word<'a>, Word<'a>)> {
 fn counting_list(words: &[Word], i: usize) -> bool {
     let n = words.len();
     let lone = |k: usize| {
-        words[k].digit
+        words[k].digit()
             && (k == 0 || !words[k - 1].trail.is_empty())
             && (!words[k].trail.is_empty() || k + 1 == n)
     };
@@ -1080,7 +1139,7 @@ fn scale_exp(word: &str) -> u32 {
 }
 
 struct Scratch {
-    windows: Vec<Window>,
+    windows: WindowBuf,
     buf: [u8; LINE_OUT],
 }
 
@@ -1120,7 +1179,7 @@ fn render_run(
 ) -> Option<String> {
     let digit_run = run
         .iter()
-        .all(|w| words[w.start..w.end].iter().all(|x| x.digit));
+        .all(|w| words[w.start..w.end].iter().all(|x| x.digit()));
     if digit_run {
         let mut all = String::new();
         for w in run {
@@ -1192,14 +1251,20 @@ fn format_segment(
         out.push_str(only.said);
         return;
     }
-    let Scratch { windows: ws, buf } = scratch;
+    let Scratch { windows, buf } = scratch;
     windows_scaled_into(
-        ws,
+        windows,
         words.len(),
-        |i| words[i].numeric,
+        |i| words[i].numeric(),
         |i| scale_exp(words[i].core) != 0,
-        |i| words[i].digit,
+        |i| words[i].digit(),
+        |i| {
+            let class = |w: &Word| t.lexicon.lookup(w.core.as_bytes()).class;
+            let (a, b) = (class(&words[i - 1]), class(&words[i]));
+            fold_left(&t.left_folds, a, b) != b
+        },
     );
+    let ws = windows.as_slice();
     let mut i = 0;
     while i < ws.len() {
         let mut j = i + 1;
@@ -1315,17 +1380,68 @@ pub fn windows_scaled(
     numeric: impl Fn(usize) -> bool,
     group_scale: impl Fn(usize) -> bool,
 ) -> Vec<Window> {
-    let mut out = Vec::new();
-    windows_scaled_into(&mut out, n, numeric, group_scale, |_| false);
-    out
+    let mut out = WindowBuf::new();
+    windows_scaled_into(&mut out, n, numeric, group_scale, |_| false, |_| false);
+    out.as_slice().to_vec()
+}
+
+const INLINE_WINDOWS: usize = 16;
+
+/// A segment's windows, on the stack unless there are many.
+struct WindowBuf {
+    inline: [Window; INLINE_WINDOWS],
+    len: usize,
+    spill: Vec<Window>,
+}
+
+impl WindowBuf {
+    fn new() -> Self {
+        let empty = Window {
+            start: 0,
+            end: 0,
+            raw: false,
+            join: false,
+        };
+        Self {
+            inline: [empty; INLINE_WINDOWS],
+            len: 0,
+            spill: Vec::new(),
+        }
+    }
+
+    fn clear(&mut self) {
+        self.len = 0;
+        self.spill.clear();
+    }
+
+    fn push(&mut self, w: Window) {
+        if self.len < INLINE_WINDOWS {
+            self.inline[self.len] = w;
+            self.len += 1;
+        } else {
+            if self.spill.is_empty() {
+                self.spill.extend_from_slice(&self.inline);
+            }
+            self.spill.push(w);
+        }
+    }
+
+    fn as_slice(&self) -> &[Window] {
+        if self.spill.is_empty() {
+            &self.inline[..self.len]
+        } else {
+            &self.spill
+        }
+    }
 }
 
 fn windows_scaled_into(
-    out: &mut Vec<Window>,
+    out: &mut WindowBuf,
     n: usize,
     numeric: impl Fn(usize) -> bool,
     group_scale: impl Fn(usize) -> bool,
     digit: impl Fn(usize) -> bool,
+    folded: impl Fn(usize) -> bool,
 ) {
     out.clear();
     let run_end = |mut i: usize| {
@@ -1340,7 +1456,7 @@ fn windows_scaled_into(
             let r = run_end(start);
             if r - start > MAX_TOKENS {
                 match split_run(start, r, &group_scale, &digit) {
-                    Some(pieces) => out.extend(pieces),
+                    Some(pieces) => pieces.into_iter().for_each(|p| out.push(p)),
                     None => out.push(Window {
                         start,
                         end: r,
@@ -1366,21 +1482,31 @@ fn windows_scaled_into(
                 j += 1;
             }
         }
-        if end < n && numeric(end - 1) && numeric(end) {
-            let mut cut = end - 1;
-            while cut > start && numeric(cut - 1) {
-                cut -= 1;
-            }
-            if cut > start {
-                // Start the next window on the word before the run, so the run
-                // keeps its left context ("room", "at"), unless that word is the
-                // right context of a number ending this window.
-                end = if cut - 1 > start && !numeric(cut - 2) {
-                    cut - 1
-                } else {
-                    cut
-                };
-            }
+        // The run the edge falls in or right before: inside it, before it
+        // ("at | five"), or inside its folded cue ("it | is five").
+        let run =
+            if end < n && numeric(end) && (numeric(end - 1) || run_end(end) - end <= MAX_TOKENS) {
+                let mut cut = end;
+                while cut > start && numeric(cut - 1) {
+                    cut -= 1;
+                }
+                Some(cut)
+            } else {
+                (end + 1 < n && numeric(end + 1) && folded(end)).then_some(end + 1)
+            };
+        if let Some(cut) = run
+            && cut > start
+        {
+            // Start the next window on the word before the run, so the run
+            // keeps its left context ("room", "at"), unless that word is the
+            // right context of a number ending this window.
+            end = if cut - 1 > start && !numeric(cut - 2) {
+                // A folded pair ("it is") is one context word: keep both.
+                let pair = cut - 2 > start && folded(cut - 1) && !numeric(cut - 3);
+                cut - 1 - usize::from(pair)
+            } else {
+                cut
+            };
         }
         out.push(Window {
             start,

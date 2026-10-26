@@ -138,6 +138,7 @@ pub fn observe<'a>(t: &Tables, rec: &Record<'a>, windows: Windows) -> Vec<Observ
         connectors: t.connector_roles,
         binds: t.bind_roles,
         lead_skip: t.lead_skip_roles,
+        folds: t.left_folds,
     };
     let known = |k| t.shapes.lookup(k) != crate::types::SHAPE_UNKNOWN;
     let mut out = Vec::new();
