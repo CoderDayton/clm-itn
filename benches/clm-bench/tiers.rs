@@ -1,3 +1,4 @@
+use clm_itn::engine::Internals;
 use clm_itn::types::{MAX_TOKENS, SpanReceipt};
 
 pub const STAGES: [&str; 4] = ["tier1 lookup", "tier2 + spans", "tier3 cells", "output"];

@@ -4,17 +4,14 @@ Every Rust block here runs as a doctest (`cargo test --doc`).
 
 - [Normalize a line](#normalize-a-line)
 - [Settings](#settings)
-- [Fast path: up to 8 tokens, no allocation](#fast-path-up-to-8-tokens-no-allocation)
-- [Errors](#errors)
 - [Share one engine across threads](#share-one-engine-across-threads)
 - [Without `std`](#without-std)
 - [Command line](#command-line)
-- [Scoring your own data](#scoring-your-own-data)
-- [Timing your own data](#timing-your-own-data)
+- [Scoring and timing your own data](#scoring-and-timing-your-own-data)
 
 ## Normalize a line
 
-`Normalizer::normalize` takes any length of spoken-form text and returns a `String`. It never cuts a number and keeps punctuation in place.
+`Normalizer::normalize` takes any length of spoken-form text and returns a `String`. It never cuts a number, keeps punctuation in place, and cannot fail.
 
 ```rust
 use clm_itn::Normalizer;
@@ -73,47 +70,6 @@ assert_eq!(plain.normalize("like eight years"), "like eight years");
 assert_eq!(plain.normalize("fifty percent off"), "50 percent off");
 ```
 
-## Fast path: up to 8 tokens, no allocation
-
-`Normalizer::format` takes pre-split tokens and writes into your byte buffer. It allocates nothing and is the call the 1.00 µs budget covers. `Formatted` says how many bytes were written and how many spans were rewritten.
-
-```rust
-use clm_itn::Normalizer;
-
-let engine = Normalizer::english();
-let tokens: [&[u8]; 4] = [b"at", b"five", b"thirty", b"pm"];
-let mut out = [0u8; 64];
-
-let done = engine.format(&tokens, &mut out)?;
-assert_eq!(&out[..done.len], b"at 5:30 pm");
-assert_eq!(done.spans, 1);
-# Ok::<(), clm_itn::FormatError>(())
-```
-
-## Errors
-
-`format` fails in two ways. `FormatError` implements `Display` and `std::error::Error`, so `?` works with `Box<dyn Error>` and with `anyhow`.
-
-```rust
-use clm_itn::{Normalizer, FormatError};
-
-let engine = Normalizer::english();
-
-let tokens: [&[u8]; 4] = [b"at", b"five", b"thirty", b"pm"];
-let mut small = [0u8; 4];
-let err = engine.format(&tokens, &mut small).unwrap_err();
-assert_eq!(err, FormatError::Overflow);
-assert_eq!(err.to_string(), "output buffer is too small");
-
-let nine: [&[u8]; 9] = [b"one"; 9];
-let mut out = [0u8; 64];
-let err = engine.format(&nine, &mut out).unwrap_err();
-assert_eq!(err, FormatError::TooManyTokens);
-assert_eq!(err.to_string(), "more than 8 tokens in one call");
-```
-
-`FormatError` is `#[non_exhaustive]`, so a `match` on it needs a `_` arm.
-
 ## Share one engine across threads
 
 `Normalizer` is `Copy`, `Send` and `Sync`. The tables are static and read-only, so build it once and hand a copy to each thread.
@@ -136,19 +92,12 @@ assert_eq!(written, ["at 5:30 pm", "room 402", "50% off"]);
 
 ## Without `std`
 
-The library builds with `#![no_std]`. Turn off default features; add `alloc` to keep `normalize`, `normalize_into` and `format_line`:
+Turn off default features and the library builds with `#![no_std]`. It needs a global allocator (`alloc`); the API is the same.
 
 ```toml
 [dependencies]
-clm-itn = { version = "0.1", default-features = false }                       # Normalizer::format only
-# clm-itn = { version = "0.1", default-features = false, features = ["alloc"] }
+clm-itn = { version = "0.1", default-features = false }
 ```
-
-| Feature | Adds |
-|---|---|
-| none | `Normalizer`, `Normalizer::format`, `Setting`, `FormatError`. No heap. |
-| `alloc` | `Normalizer::normalize`, `Normalizer::normalize_into`, `format_line` |
-| `std` (default) | `alloc`, the table builder, the `clm-itn` and `clm-learn` binaries, and the `clm-bench` benchmark |
 
 ## Command line
 
@@ -166,7 +115,7 @@ clm-itn < spoken.txt > written.txt
 
 ## Scoring and timing your own data
 
-`--corpus` runs a corpus file, or every `.jsonl`, `.tsv` and `.txt` file in a folder, with one report per file: right and wrong counts when lines carry a written form, then `format_line` timing. A `.tsv` line is `spoken [TAB written [TAB tag]]`. A `.jsonl` line is an object; the spoken text is its first `spoken`, `input`, `raw`, `text` or `sentence` string field, the written form `written` or `gold`, the tag `tag` or `category`:
+`--corpus` runs a corpus file, or every `.jsonl`, `.tsv` and `.txt` file in a folder, with one report per file: right and wrong counts when lines carry a written form, then `normalize_into` timing. A `.tsv` line is `spoken [TAB written [TAB tag]]`. A `.jsonl` line is an object; the spoken text is its first `spoken`, `input`, `raw`, `text` or `sentence` string field, the written form `written` or `gold`, the tag `tag` or `category`:
 
 ```json
 {"id": 1, "spoken": "set an alarm for seven thirty am", "written": "set an alarm for 7:30 am"}

@@ -142,7 +142,7 @@ pub enum Setting {
 
 impl Setting {
     /// Every setting, in declaration order.
-    pub const ALL: [Setting; 8] = [
+    pub const ALL: &'static [Setting] = &[
         Setting::SingleDigits,
         Setting::Percent,
         Setting::Currency,
@@ -171,7 +171,7 @@ impl Setting {
     /// The setting with this [`name`](Self::name).
     #[must_use]
     pub fn from_name(name: &str) -> Option<Setting> {
-        Setting::ALL.into_iter().find(|s| s.name() == name)
+        Setting::ALL.iter().copied().find(|s| s.name() == name)
     }
 
     pub(crate) const fn bit(self) -> SettingBits {

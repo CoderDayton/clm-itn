@@ -7,9 +7,9 @@ build = { command = "cargo build", env = { RUST_LOG = "info" } }
 release = "cargo build --release"
 test = { command = "cargo test", env = { RUST_LOG = "warn" } }
 doc = "cargo doc --no-deps --open"
-bench = { command = "cargo bench --bench clm-bench", info = "End-to-end p99 gate on the generated corpus; pin with taskset -c <core> for sign-off" }
-bench-tiers = { command = "cargo bench --bench clm-bench -- --tiers", info = "End-to-end gate plus the per-tier split" }
-bench-corpus = { interpreter = "bash", command = 'cargo bench --bench clm-bench -- --corpus "${CORPUS:-tests/data}"', info = "Score (right/wrong) and time format_line over each .jsonl/.tsv/.txt file in a folder (--env CORPUS=<file|folder>, default tests/data)" }
+bench = { command = "cargo bench --bench clm-bench", info = "normalize p99 gate on the generated corpus; pin with taskset -c <core> for sign-off" }
+bench-tiers = { command = "cargo bench --bench clm-bench -- --tiers", info = "The gate plus the table engine's per-tier split" }
+bench-corpus = { interpreter = "bash", command = 'cargo bench --bench clm-bench -- --corpus "${CORPUS:-tests/data}"', info = "Score (right/wrong) and time normalize over each .jsonl/.tsv/.txt file in a folder (--env CORPUS=<file|folder>, default tests/data)" }
 lint = { command = "cargo fmt --all && cargo clippy --all-targets --all-features -- -D warnings", info = "Format code, then run clippy with warnings as errors" }
-lint-ci = { command = "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo script lint-no-std", info = "Check formatting without changing files, then run clippy with warnings as errors, with and without std" }
-lint-no-std = { command = "cargo clippy --lib --no-default-features -- -D warnings && cargo clippy --lib --no-default-features --features alloc -- -D warnings", info = "Run clippy on the no_std and alloc-only library builds" }
+lint-ci = { command = "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo script lint-lib", info = "Check formatting without changing files, then run clippy with warnings as errors, with and without std" }
+lint-lib = { command = "cargo clippy --lib -- -D warnings && cargo clippy --lib --no-default-features -- -D warnings", info = "Run clippy on the library as users build it: std, and no_std" }

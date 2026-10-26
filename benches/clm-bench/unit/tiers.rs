@@ -1,4 +1,5 @@
 use crate::tiers::*;
+use clm_itn::engine::Internals;
 use clm_itn::types::{MAX_TOKENS, SpanReceipt};
 
 fn ramp(n: u32) -> Vec<u32> {
@@ -121,7 +122,7 @@ fn collect_subtracts_overhead_sorts_and_counts_skips() {
 
 #[test]
 fn engine_source_profiles_every_ok_window_and_matches_format() {
-    let engine = clm_itn::engine::Normalizer::new(clm_itn::english());
+    let engine = clm_itn::Normalizer::english();
     let src = source(&engine);
     assert_eq!(src.unavailable(), None);
     let corpus = crate::corpus::Corpus::generate(500, 7);

@@ -6,8 +6,8 @@ use crate::engine::Normalizer;
 use crate::engine::span::fold_left;
 use crate::tables::{Tables, WORDS_FIRST_WORDS};
 use crate::types::{
-    CLASS_UNKNOWN, ClassId, MAX_TOKENS, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE, ROLE_OH,
-    ROLE_ORDINAL, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting,
+    CLASS_UNKNOWN, MAX_TOKENS, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE, ROLE_OH, ROLE_ORDINAL,
+    ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting, TokenInfo,
 };
 
 const LINE_OUT: usize = 512;
@@ -61,6 +61,8 @@ struct Word<'a> {
     trail: &'a str,
     /// What the word prints when kept as spoken; empty prints nothing.
     said: &'a str,
+    /// Lexicon entry of `core`, handed to the engine so it is looked up once.
+    info: TokenInfo,
     /// `W_*` bits.
     flags: u16,
     /// See `kind`.
@@ -124,6 +126,18 @@ impl Word<'_> {
     }
 }
 
+impl<'a> Word<'a> {
+    /// Respells `core` in other letter case. The lexicon ignores case, so
+    /// `info` stays the entry of the new spelling.
+    fn recase(&mut self, core: &'a str) {
+        debug_assert!(
+            self.core.eq_ignore_ascii_case(core),
+            "recase changed letters"
+        );
+        self.core = core;
+    }
+}
+
 #[inline(always)]
 fn bit(on: bool, bit: u16) -> u16 {
     u16::from(on) * bit
@@ -131,12 +145,12 @@ fn bit(on: bool, bit: u16) -> u16 {
 
 fn tag_class<'a>(
     t: &Tables,
-    class: ClassId,
+    info: TokenInfo,
     lead: &'a str,
     core: &'a str,
     trail: &'a str,
 ) -> Word<'a> {
-    let full = t.role_of[class as usize];
+    let full = t.role_of[info.class as usize];
     let role = full & 0x0F;
     let b = bare(core);
     Word {
@@ -144,6 +158,7 @@ fn tag_class<'a>(
         core,
         trail,
         said: core,
+        info,
         flags: bit(full != 0, W_NUMERIC)
             | bit(
                 role != 0 && (t.suffix_roles | t.prefix_roles) >> role & 1 == 0,
@@ -161,13 +176,7 @@ fn tag_class<'a>(
 }
 
 fn tag<'a>(t: &Tables, lead: &'a str, core: &'a str, trail: &'a str) -> Word<'a> {
-    tag_class(
-        t,
-        t.lexicon.lookup(core.as_bytes()).class,
-        lead,
-        core,
-        trail,
-    )
+    tag_class(t, t.lexicon.lookup(core.as_bytes()), lead, core, trail)
 }
 
 fn split_word<'a>(token: &'a str, t: &Tables) -> Word<'a> {
@@ -183,11 +192,11 @@ fn split_word<'a>(token: &'a str, t: &Tables) -> Word<'a> {
     if (start == 0 && end == token.len()) || start == end {
         return tag(t, "", token, "");
     }
-    let class = t.lexicon.lookup(&token.as_bytes()[start..end]).class;
-    if class == CLASS_UNKNOWN {
+    let info = t.lexicon.lookup(&token.as_bytes()[start..end]);
+    if info.class == CLASS_UNKNOWN {
         return tag(t, "", token, "");
     }
-    tag_class(t, class, &token[..start], &token[start..end], &token[end..])
+    tag_class(t, info, &token[..start], &token[start..end], &token[end..])
 }
 
 fn meridiem(letter: &str, next: &str) -> Option<(&'static str, usize)> {
@@ -921,7 +930,7 @@ fn cuts(words: &mut [Word]) {
             let in_date = words.get(i + 3).is_some_and(|w| w.value()) && linked(words, i + 2);
             words[i + 2].said = m;
             if !in_date {
-                words[i + 2].core = m;
+                words[i + 2].recase(m);
             }
             if run_start {
                 words[i].flags |= W_DATED | W_CUT;
@@ -1036,7 +1045,7 @@ fn join_letters(out: &mut String, begin: usize) {
 }
 
 pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
-    let t = engine.tables();
+    let t = engine.tables;
     let begin = out.len();
     let spaces = line.bytes().filter(|&b| b == b' ').count();
     let mut words: Vec<Word> = Vec::with_capacity(spaces + 3);
@@ -1174,10 +1183,14 @@ fn render<'b>(
         .get(w.start..w.end)
         .filter(|s| !w.raw && s.len() <= MAX_TOKENS)?;
     let mut tokens: [&[u8]; MAX_TOKENS] = [&[]; MAX_TOKENS];
-    for (token, word) in tokens.iter_mut().zip(span) {
+    let mut infos = [TokenInfo::default(); MAX_TOKENS];
+    for ((token, info), word) in tokens.iter_mut().zip(&mut infos).zip(span) {
         *token = word.core.as_bytes();
+        *info = word.info;
     }
-    let done = engine.format(&tokens[..span.len()], buf).ok()?;
+    let done = engine
+        .format_infos(&tokens[..span.len()], infos, buf)
+        .ok()?;
     core::str::from_utf8(&buf[..done.len]).ok()
 }
 
@@ -1238,7 +1251,7 @@ fn words_first(t: &Tables, core: &str) -> bool {
 }
 
 fn digit_word(engine: &Normalizer, core: &str) -> bool {
-    let t = engine.tables();
+    let t = engine.tables;
     let info = t.lexicon.lookup(core.as_bytes());
     engine.is_on(Setting::SingleDigits)
         && engine.is_digit_word(info.canonical, t.role_of[info.class as usize] & 0x0F)
@@ -1252,7 +1265,7 @@ fn format_segment(
     out: &mut String,
     scratch: &mut Scratch,
 ) {
-    let t = engine.tables();
+    let t = engine.tables;
     if let [only] = words
         && !dated
         && words_first(t, only.core)
@@ -1381,10 +1394,12 @@ fn stitch(pieces: &[(String, u32)]) -> Option<String> {
     Some(acc)
 }
 
+#[cfg(feature = "internals")]
 pub fn windows(n: usize, numeric: impl Fn(usize) -> bool) -> Vec<Window> {
     windows_scaled(n, numeric, |_| false)
 }
 
+#[cfg(feature = "internals")]
 pub fn windows_scaled(
     n: usize,
     numeric: impl Fn(usize) -> bool,

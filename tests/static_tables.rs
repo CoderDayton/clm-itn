@@ -1,7 +1,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
-use clm_itn::engine::Normalizer;
+use clm_itn::engine::{Internals, Normalizer};
 
 struct Counting;
 
@@ -39,10 +39,10 @@ fn counted<R>(f: impl FnOnce() -> R) -> (R, usize, usize) {
 
 #[test]
 fn engine_on_static_tables_allocates_nothing() {
-    let (engine, count, bytes) = counted(|| Normalizer::new(clm_itn::english()));
+    let (engine, count, bytes) = counted(Normalizer::english);
     assert_eq!(
         count, 0,
-        "Normalizer::new made {count} allocations ({bytes} bytes)"
+        "Normalizer::english made {count} allocations ({bytes} bytes)"
     );
 
     let tokens: [&[u8]; 4] = [b"at", b"five", b"thirty", b"pm"];
@@ -54,8 +54,8 @@ fn engine_on_static_tables_allocates_nothing() {
 }
 
 #[test]
-fn format_line_allocates_a_few_times_per_line() {
-    let engine = Normalizer::new(clm_itn::english());
+fn normalize_into_allocates_a_few_times_per_line() {
+    let engine = Normalizer::english();
     let mut out = String::with_capacity(512);
     for (line, limit) in [
         ("meet me at five thirty pm in room four oh two", 3),
@@ -67,7 +67,7 @@ fn format_line_allocates_a_few_times_per_line() {
         ),
     ] {
         out.clear();
-        let (_, count, _) = counted(|| clm_itn::format_line(&engine, line, &mut out));
+        let (_, count, _) = counted(|| engine.normalize_into(line, &mut out));
         assert!(
             count <= limit,
             "{line:?}: {count} allocations, limit {limit}"
@@ -77,7 +77,7 @@ fn format_line_allocates_a_few_times_per_line() {
 
 #[test]
 fn english_is_a_static_with_no_runtime_build() {
-    let (t, count, _) = counted(clm_itn::english);
+    let (t, count, _) = counted(clm_itn::tables::english);
     assert_eq!(count, 0);
-    assert!(core::ptr::eq(t, clm_itn::english()));
+    assert!(core::ptr::eq(t, clm_itn::tables::english()));
 }

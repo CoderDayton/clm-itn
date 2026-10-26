@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.92"
 authors = ["vii (CoderDayton)"]
 license = "Apache-2.0"
-description = "Inverse text normalization for English: spoken numbers, times, dates and units to written form, with a 1 µs p99 fast path."
+description = "Inverse text normalization for English: spoken numbers, times, dates and units to written form, under 1 µs p99 per short utterance."
 repository = "https://github.com/CoderDayton/clm-itn"
 readme = "README.md"
 keywords = ["itn", "text-normalization", "speech", "asr", "nlp"]
@@ -15,12 +15,16 @@ exclude = [".github/", "CLAUDE.md", "Scripts.toml", "lefthook.yml", "tools/"]
 
 [features]
 default = ["std"]
-# The CLI, the bench, and the table builder.
-std = ["alloc"]
-# Normalizer::normalize, Normalizer::normalize_into and format_line.
-alloc = []
+# Off: `#![no_std]` with `alloc`.
+std = []
+# Unstable engine internals for this repo's tests, bench and clm-learn. Not public API.
+internals = ["std"]
 
 [dependencies]
+
+[dev-dependencies]
+# Turns on `internals` for tests and the bench only.
+clm-itn = { path = ".", features = ["internals"] }
 
 [profile.dev]
 opt-level = 0
@@ -43,7 +47,7 @@ required-features = ["std"]
 [[bin]]
 name = "clm-learn"
 path = "src/bin/clm-learn/main.rs"
-required-features = ["std"]
+required-features = ["internals"]
 
 [[bench]]
 name = "clm-bench"

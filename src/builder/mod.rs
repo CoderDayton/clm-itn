@@ -1300,6 +1300,7 @@ fn check_candidate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::Internals;
     use crate::types::{DOMAIN_DATE, DOMAIN_ORDINAL, DOMAIN_PLAIN, SHAPE_UNKNOWN, Setting};
 
     fn shape_id(t: &Tables, phrase: &str) -> ShapeId {

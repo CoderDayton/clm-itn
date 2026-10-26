@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
 use clm_itn::Normalizer;
-use clm_itn::format_line;
+use clm_itn::tables::Tables;
 use clm_itn::types::ROLE_NONE;
 
 use crate::score::{DIGITS_LEGEND, WordRole, accuracy, is_partial};
@@ -55,7 +55,7 @@ pub struct Record {
     pub items: Vec<(std::ops::Range<usize>, Span)>,
 }
 
-pub fn word_role(t: &clm_itn::Tables, w: &str) -> WordRole {
+pub fn word_role(t: &Tables, w: &str) -> WordRole {
     let c = t.lexicon.lookup(w.as_bytes()).class as usize;
     let start = (t.starts[c / 64] >> (c % 64)) & 1 == 1;
     let role = t.role_of[c];
@@ -67,7 +67,7 @@ pub fn word_role(t: &clm_itn::Tables, w: &str) -> WordRole {
     }
 }
 
-pub fn number_word(t: &clm_itn::Tables, w: &str) -> bool {
+pub fn number_word(t: &Tables, w: &str) -> bool {
     word_role(t, w) == WordRole::Number
 }
 
@@ -345,23 +345,23 @@ pub fn run(path: &str, isolated: bool) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let tables = clm_itn::english();
+    let tables = clm_itn::tables::english();
     let (records, malformed) = parse_records(&text, |w| number_word(tables, w));
-    let engine = Normalizer::new(tables);
+    let engine = Normalizer::english();
     let mut tally = PairTally::default();
     let mut sentence = String::new();
     let mut got = String::new();
     for r in &records {
         sentence.clear();
         if !isolated {
-            format_line(&engine, &r.line, &mut sentence);
+            engine.normalize_into(&r.line, &mut sentence);
         }
         let raw: Vec<&str> = r.line.split(' ').collect();
         let out: Vec<&str> = sentence.split_whitespace().collect();
         for (range, s) in &r.items {
             got.clear();
             if isolated {
-                format_line(&engine, &s.spoken, &mut got);
+                engine.normalize_into(&s.spoken, &mut got);
             } else {
                 got.push_str(&span_output(&raw, &out, range.clone()));
             }

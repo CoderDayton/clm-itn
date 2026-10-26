@@ -837,6 +837,7 @@ pub fn gold_domain(class: &str) -> Option<DomainId> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::Internals;
 
     fn gold<'a>(start: usize, len: usize, class: &'a str, written: &'a str) -> Gold<'a> {
         Gold {

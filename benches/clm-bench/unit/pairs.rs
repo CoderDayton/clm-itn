@@ -19,7 +19,7 @@ fn parse_pairs(text: &str, is_number: impl Fn(&str) -> bool) -> (Vec<Span>, usiz
 
 #[test]
 fn number_words_have_a_role_and_month_names_do_not_count() {
-    let t = clm_itn::english();
+    let t = clm_itn::tables::english();
     for w in ["one", "five", "twenty", "first", "hundred"] {
         assert!(number_word(t, w), "{w}");
     }
@@ -31,7 +31,7 @@ fn number_words_have_a_role_and_month_names_do_not_count() {
 #[test]
 fn affix_roles_are_not_number_words() {
     use crate::score::WordRole;
-    let t = clm_itn::english();
+    let t = clm_itn::tables::english();
     for w in ["percent", "dollars"] {
         assert_eq!(word_role(t, w), WordRole::Affix, "{w}");
         assert!(!number_word(t, w), "{w}");

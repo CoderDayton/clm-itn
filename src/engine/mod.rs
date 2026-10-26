@@ -1,10 +1,8 @@
 //! The formatting engine.
 
 pub mod span;
-#[cfg(feature = "alloc")]
 pub mod window;
 
-#[cfg(feature = "alloc")]
 use alloc::string::String;
 
 use crate::tables::context::{abstains, select};
@@ -22,9 +20,8 @@ use span::{Affixes, Span, segment};
 /// Domain, candidate, cell, lead length, and whether the lead stays as spoken.
 type Chosen = (DomainId, CandidateId, u16, u8, bool);
 
-/// What [`Normalizer::format`] wrote.
+/// What [`Internals::format`] wrote.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct Formatted {
     /// Bytes written to the output buffer.
     pub len: usize,
@@ -71,22 +68,95 @@ impl Default for Normalizer<'static> {
     }
 }
 
+/// Engine entry points for this repo's tests, bench and tools. Not public API.
+#[cfg(feature = "internals")]
+pub trait Internals<'t>: Sized {
+    /// A normalizer over `tables`, with every [`Setting`] on.
+    fn new(tables: &'t Tables) -> Self;
+    /// The tables this normalizer reads.
+    fn tables(&self) -> &'t Tables;
+    /// Rewrites at most `MAX_TOKENS` pre-split tokens into `out` with the
+    /// table engine alone, without the line layer's rules.
+    ///
+    /// # Errors
+    ///
+    /// [`FormatError::TooManyTokens`] past `MAX_TOKENS` tokens and
+    /// [`FormatError::Overflow`] if `out` is too small.
+    fn format(&self, tokens: &[&[u8]], out: &mut [u8]) -> Result<Formatted, FormatError>;
+    /// [`format`](Self::format), recording which cell rewrote each span.
+    ///
+    /// # Errors
+    ///
+    /// As [`format`](Self::format).
+    fn format_receipts(
+        &self,
+        tokens: &[&[u8]],
+        out: &mut [u8],
+        receipts: &mut [SpanReceipt; MAX_TOKENS],
+    ) -> Result<Formatted, FormatError>;
+    /// [`format_receipts`](Self::format_receipts), timing each tier with `now`.
+    fn format_profiled(
+        &self,
+        tokens: &[&[u8]],
+        out: &mut [u8],
+        receipts: &mut [SpanReceipt; MAX_TOKENS],
+        now: &mut impl FnMut() -> u64,
+    ) -> (Result<Formatted, FormatError>, [u64; 4]);
+}
+
+#[cfg(feature = "internals")]
+impl<'t> Internals<'t> for Normalizer<'t> {
+    fn new(tables: &'t Tables) -> Self {
+        Normalizer { tables, off: 0 }
+    }
+
+    fn tables(&self) -> &'t Tables {
+        self.tables
+    }
+
+    fn format(&self, tokens: &[&[u8]], out: &mut [u8]) -> Result<Formatted, FormatError> {
+        let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
+        self.format_receipts(tokens, out, &mut receipts)
+    }
+
+    fn format_receipts(
+        &self,
+        tokens: &[&[u8]],
+        out: &mut [u8],
+        receipts: &mut [SpanReceipt; MAX_TOKENS],
+    ) -> Result<Formatted, FormatError> {
+        if tokens.len() > MAX_TOKENS {
+            return Err(FormatError::TooManyTokens);
+        }
+        let mut infos = [TokenInfo::default(); MAX_TOKENS];
+        self.tables.lexicon.lookup_window(tokens, &mut infos);
+        self.format_known(tokens, infos, out, receipts)
+    }
+
+    fn format_profiled(
+        &self,
+        tokens: &[&[u8]],
+        out: &mut [u8],
+        receipts: &mut [SpanReceipt; MAX_TOKENS],
+        now: &mut impl FnMut() -> u64,
+    ) -> (Result<Formatted, FormatError>, [u64; 4]) {
+        self.profiled(tokens, out, receipts, now)
+    }
+}
+
 impl Normalizer<'static> {
     /// A normalizer over the built-in English tables, which are compiled into
     /// the binary. Building it allocates nothing.
     #[must_use]
     pub fn english() -> Normalizer<'static> {
-        Normalizer::new(crate::english())
+        Normalizer {
+            tables: crate::tables::english::english(),
+            off: 0,
+        }
     }
 }
 
 impl<'t> Normalizer<'t> {
-    /// A normalizer over the given tables, with every [`Setting`] on.
-    #[must_use]
-    pub fn new(tables: &'t Tables) -> Normalizer<'t> {
-        Normalizer { tables, off: 0 }
-    }
-
     /// Switches `setting` off.
     ///
     /// ```
@@ -121,11 +191,6 @@ impl<'t> Normalizer<'t> {
         role == ROLE_DIGIT && self.value(canonical) < 10
     }
 
-    #[doc(hidden)]
-    pub fn tables(&self) -> &'t Tables {
-        self.tables
-    }
-
     /// Rewrites a line of spoken-form text and returns it as a new `String`.
     ///
     /// The line can be any length. Numbers are never cut, and punctuation
@@ -136,7 +201,6 @@ impl<'t> Normalizer<'t> {
     /// let engine = clm_itn::Normalizer::english();
     /// assert_eq!(engine.normalize("room four oh two."), "room 402.");
     /// ```
-    #[cfg(feature = "alloc")]
     #[must_use]
     pub fn normalize(&self, text: &str) -> String {
         let mut out = String::with_capacity(text.len());
@@ -156,49 +220,34 @@ impl<'t> Normalizer<'t> {
     ///     println!("{out}");
     /// }
     /// ```
-    #[cfg(feature = "alloc")]
     pub fn normalize_into(&self, text: &str, out: &mut String) {
         window::format_line(self, text, out);
     }
 
-    /// Rewrites up to [`MAX_TOKENS`] pre-split tokens into `out` without
-    /// allocating. This is the call the 1.00 µs p99 budget covers.
-    ///
-    /// Tokens are spoken-form words with no punctuation. Rewritten spans and
-    /// untouched words are joined by single spaces.
-    ///
-    /// # Errors
-    ///
-    /// [`FormatError::TooManyTokens`] if there are more than [`MAX_TOKENS`]
-    /// tokens, and [`FormatError::Overflow`] if `out` is too small.
-    ///
-    /// ```
-    /// let engine = clm_itn::Normalizer::english();
-    /// let tokens: [&[u8]; 4] = [b"at", b"five", b"thirty", b"pm"];
-    /// let mut out = [0u8; 64];
-    /// let done = engine.format(&tokens, &mut out)?;
-    /// assert_eq!(&out[..done.len], b"at 5:30 pm");
-    /// # Ok::<(), clm_itn::FormatError>(())
-    /// ```
-    pub fn format(&self, tokens: &[&[u8]], out: &mut [u8]) -> Result<Formatted, FormatError> {
-        let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
-        self.format_receipts(tokens, out, &mut receipts)
-    }
-
-    #[doc(hidden)]
-    pub fn format_receipts(
+    /// Rewrites at most `MAX_TOKENS` tokens, whose lexicon entries are already
+    /// in `infos`, into `out`. Only the line layer's rules make this correct
+    /// on its own words; see [`window::format_line`].
+    pub(crate) fn format_infos(
         &self,
         tokens: &[&[u8]],
+        infos: [TokenInfo; MAX_TOKENS],
+        out: &mut [u8],
+    ) -> Result<Formatted, FormatError> {
+        debug_assert!(tokens.len() <= MAX_TOKENS);
+        let mut receipts = [SpanReceipt::default(); MAX_TOKENS];
+        self.format_known(tokens, infos, out, &mut receipts)
+    }
+
+    #[inline(always)]
+    fn format_known(
+        &self,
+        tokens: &[&[u8]],
+        mut infos: [TokenInfo; MAX_TOKENS],
         out: &mut [u8],
         receipts: &mut [SpanReceipt; MAX_TOKENS],
     ) -> Result<Formatted, FormatError> {
         let n = tokens.len();
-        if n > MAX_TOKENS {
-            return Err(FormatError::TooManyTokens);
-        }
         let t = self.tables;
-        let mut infos = [TokenInfo::default(); MAX_TOKENS];
-        t.lexicon.lookup_window(tokens, &mut infos);
         let classes = self.classes(&mut infos, n);
         let mut spans = [Span::default(); MAX_TOKENS];
         let known = |k| t.shapes.lookup(k) != SHAPE_UNKNOWN;
@@ -240,8 +289,8 @@ impl<'t> Normalizer<'t> {
         })
     }
 
-    #[doc(hidden)]
-    pub fn format_profiled(
+    #[cfg(feature = "internals")]
+    fn profiled(
         &self,
         tokens: &[&[u8]],
         out: &mut [u8],
@@ -300,6 +349,7 @@ impl<'t> Normalizer<'t> {
         classes
     }
 
+    #[cfg(feature = "internals")]
     #[inline(always)]
     fn render_spans(
         &self,
@@ -708,7 +758,7 @@ mod tests {
 
     #[test]
     fn affix_split_reads_money_and_percent_on_plain_shapes() {
-        let engine = Normalizer::new(crate::english());
+        let engine = Normalizer::new(crate::tables::english());
         for (text, want) in [
             ("costs two thousand five dollars", "costs $2,005"),
             ("twenty three thousand dollars", "$23,000"),
@@ -722,7 +772,7 @@ mod tests {
 
     #[test]
     fn litv_reads_units_currencies_and_keeps_the_meridiem() {
-        let engine = Normalizer::new(crate::english());
+        let engine = Normalizer::new(crate::tables::english());
         for (text, want) in [
             ("two hundred meters", "200 meters"),
             ("eighteen point five kilometers", "18.5 kilometers"),
@@ -739,7 +789,7 @@ mod tests {
 
     #[test]
     fn two_token_units_stay_words() {
-        let engine = Normalizer::new(crate::english());
+        let engine = Normalizer::new(crate::tables::english());
         for (text, want) in [
             ("two square meters", "2 square meters"),
             ("five cubic meters", "5 cubic meters"),
@@ -759,7 +809,7 @@ mod tests {
 
     #[test]
     fn minus_stays_a_word() {
-        let engine = Normalizer::new(crate::english());
+        let engine = Normalizer::new(crate::tables::english());
         for (text, want) in [
             ("minus sixty six kilograms", "minus 66 kilograms"),
             (
@@ -778,7 +828,7 @@ mod tests {
 
     #[test]
     fn composite_money_writes_dollars_and_cents() {
-        let engine = Normalizer::new(crate::english());
+        let engine = Normalizer::new(crate::tables::english());
         for (text, want) in [
             ("three dollars twenty", "$3.20"),
             ("three dollars ninety nine", "$3.99"),

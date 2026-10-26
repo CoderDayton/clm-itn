@@ -5,11 +5,6 @@ Every public export of the `clm_itn` crate, its Cargo features, and its command-
 - [Rules that apply everywhere](#rules-that-apply-everywhere)
 - [Normalizer](#normalizer)
 - [Setting](#setting)
-- [Formatted](#formatted)
-- [FormatError](#formaterror)
-- [format_line](#format_line)
-- [Tables and english](#tables-and-english)
-- [MAX_TOKENS](#max_tokens)
 - [Features](#features)
 - [Commands](#commands)
 
@@ -17,9 +12,9 @@ Every public export of the `clm_itn` crate, its Cargo features, and its command-
 
 - Input is spoken-form English, lowercase or cased. Words not in the lexicon, and digits already in the input, pass through with their original bytes and case.
 - Output is deterministic: the same input and settings always give the same output.
-- `format` reports errors as `FormatError` and does not panic on random token windows (`tests/fuzz.rs`).
-- `Formatted`, `Setting` and `FormatError` are `#[non_exhaustive]`. A `match` on `Setting` or `FormatError` needs a `_` arm.
-- Modules not listed here (`builder`, `engine`, `tables`, `types`, `hash`) are public only for the binaries and tests and are hidden from the docs. They can change without notice.
+- `normalize` cannot fail and does not panic on random lines (`tests/fuzz.rs`).
+- `Setting` is `#[non_exhaustive]`, so a `match` on it needs a `_` arm.
+- The crate exports `Normalizer` and `Setting`, nothing else. The `internals` feature exposes the engine for this repo's tests, bench and `clm-learn`; it is unstable and not part of the API.
 
 ## Normalizer
 
@@ -31,15 +26,7 @@ Every public export of the `clm_itn` crate, its Cargo features, and its command-
 pub fn english() -> Normalizer<'static>
 ```
 
-A normalizer over the built-in English tables, which are compiled into the binary. Allocates nothing. `Normalizer::default()` is the same normalizer.
-
-### Normalizer::new
-
-```rust
-pub fn new(tables: &'t Tables) -> Normalizer<'t>
-```
-
-A normalizer over the given tables, with every setting on. Allocates nothing.
+A normalizer over the built-in English tables, which are compiled into the binary, with every setting on. Allocates nothing. `Normalizer::default()` is the same normalizer.
 
 ### Normalizer::without
 
@@ -68,7 +55,7 @@ Whether `setting` is on.
 ### Normalizer::normalize
 
 ```rust
-pub fn normalize(&self, text: &str) -> String   // feature "alloc"
+pub fn normalize(&self, text: &str) -> String
 ```
 
 Rewrites a line of any length and returns a new `String`. It is `normalize_into` into a fresh buffer.
@@ -76,7 +63,7 @@ Rewrites a line of any length and returns a new `String`. It is `normalize_into`
 ### Normalizer::normalize_into
 
 ```rust
-pub fn normalize_into(&self, text: &str, out: &mut String)   // feature "alloc"
+pub fn normalize_into(&self, text: &str, out: &mut String)
 ```
 
 Rewrites a line of any length and appends the result to `out`. Clear `out` between lines to reuse it. Behavior:
@@ -97,24 +84,7 @@ Rewrites a line of any length and appends the result to `out`. Clear `out` betwe
 - **Noon** (`Setting::Noon`): "twelve noon" and "twelve midnight" become `noon` and `midnight`.
 - **Whitespace:** runs of whitespace collapse to one space.
 
-It allocates: at most 5 times per line with a reused `String`, at most 8 with a new one, on the dictation gold set; most lines allocate once. It is not covered by the 1.00 µs budget.
-
-### Normalizer::format
-
-```rust
-pub fn format(&self, tokens: &[&[u8]], out: &mut [u8]) -> Result<Formatted, FormatError>
-```
-
-Rewrites up to 8 pre-split tokens into `out` with no allocation. This is the call the 1.00 µs p99 budget covers, and it is available without `alloc`.
-
-- Tokens are words with no punctuation attached. A token such as `five,` is unknown and passes through, which can split a number.
-- Tokens longer than 15 bytes skip the lexicon and pass through.
-- Rewritten spans and untouched tokens are joined by single spaces.
-
-Errors:
-
-- `FormatError::TooManyTokens` if `tokens.len() > 8`.
-- `FormatError::Overflow` if `out` is too small. Nothing is written past the end of `out`.
+It allocates about once per call on utterances of up to 8 tokens, and at most 5 times per line with a reused `String` (8 with a new one) on the dictation gold set. Its p99 on utterances of up to 8 tokens is the 1.00 µs budget the bench gates ([PERFORMANCE.md](PERFORMANCE.md)); longer lines cost more.
 
 ## Setting
 
@@ -135,64 +105,21 @@ A rewrite beyond writing numbers as digits. All are on by default. Derives `Clon
 | `Oclock` | `oclock` | 5 o'clock | 5 oclock |
 | `Temperature` | `temperature` | 72 degrees Fahrenheit | 72 degrees fahrenheit |
 
-- `Setting::ALL` lists every setting.
+- `Setting::ALL` is a `&'static [Setting]` of every setting, so a new setting does not change its type.
 - `name()` gives the kebab-case name, and `from_name(&str)` turns it back into a `Setting`.
 - With `SingleDigits` off, ordinals ("she finished third") and numbers of two or more words ("twenty five people" → `25 people`) are unchanged. A label or identifier word before a number ("step five", "room five") still gives digits.
 - A word whose setting is off (`percent`, `dollars`, `p m`, `oclock`, `fahrenheit`) is kept as spoken, and the number before it is written as a plain number.
 
-## Formatted
-
-What `Normalizer::format` wrote.
-
-| Field | Type | Meaning |
-|---|---|---|
-| `len` | `usize` | Bytes written to the output buffer |
-| `spans` | `usize` | Number of spans rewritten |
-
-## FormatError
-
-| Variant | `Display` | Cause |
-|---|---|---|
-| `Overflow` | `output buffer is too small` | `out` cannot hold the result |
-| `TooManyTokens` | `more than 8 tokens in one call` | More than `MAX_TOKENS` tokens |
-
-Implements `Display` and `core::error::Error`, so `?` works with `Box<dyn Error>` and `anyhow`.
-
-## format_line
-
-```rust
-pub fn format_line(engine: &Normalizer, line: &str, out: &mut String)   // feature "alloc"
-```
-
-The free-function form of `Normalizer::normalize_into`, with the same behavior. It appends to `out`.
-
-## Tables and english
-
-```rust
-pub fn english() -> &'static Tables
-```
-
-The built-in English tables as static data. `Tables` holds the lexicon, shape table, context table, cells and candidate programs. Pass it to `Normalizer::new`. The tables are built by `build.rs` at compile time.
-
-## MAX_TOKENS
-
-```rust
-pub const MAX_TOKENS: usize = 8;
-```
-
-The most tokens one `Normalizer::format` call accepts.
-
 ## Features
 
-| Feature | Adds |
+| Feature | Effect |
 |---|---|
-| none | `Normalizer`, `Normalizer::format`, `Setting`, `Formatted`, `FormatError`, `Tables`, `english`, `MAX_TOKENS`. `#![no_std]`, no heap. |
-| `alloc` | `Normalizer::normalize`, `Normalizer::normalize_into`, `format_line` |
-| `std` (default) | `alloc`, the table builder, the `clm-itn` and `clm-learn` binaries, and the `clm-bench` benchmark |
+| `std` (default) | Links `std`; builds the `clm-itn` binary and the `clm-bench` benchmark |
+| none | `#![no_std]` with `alloc`; the same API |
+| `internals` | Unstable. Exposes the engine, the table builder and the `clm-learn` binary for this repo's own tools |
 
 ```toml
-clm-itn = { git = "https://github.com/CoderDayton/clm-itn", default-features = false }                       # format only
-clm-itn = { git = "https://github.com/CoderDayton/clm-itn", default-features = false, features = ["alloc"] } # plus normalize
+clm-itn = { git = "https://github.com/CoderDayton/clm-itn", default-features = false } # no_std
 ```
 
 ## Commands
@@ -214,9 +141,9 @@ cargo bench --bench clm-bench -- --pairs <pairgen split file> [--isolated]
 cargo bench --bench clm-bench -- --spell <id TAB raw TAB final file>
 ```
 
-The default mode times `Normalizer::format` over a generated corpus (default 10⁶ utterances, seed 1) and checks p99 against 1.00 µs. `--tiers` adds a per-tier split. Exits non-zero when the gate fails. See [PERFORMANCE.md](PERFORMANCE.md).
+The default mode times `Normalizer::normalize_into` over a generated corpus (default 10⁶ utterances of up to 8 tokens, seed 1) and checks p99 against 1.00 µs and allocations against 1.05 per call. `--tiers` adds a per-tier split of the table engine. Exits non-zero when the gate fails. See [PERFORMANCE.md](PERFORMANCE.md).
 
-`--corpus` reads a corpus file, or each `.jsonl`, `.tsv` and `.txt` file in a folder (sorted by name, one report per file). For each file it prints accuracy, when lines carry a written form, then `format_line` timing (report only):
+`--corpus` reads a corpus file, or each `.jsonl`, `.tsv` and `.txt` file in a folder (sorted by name, one report per file). For each file it prints accuracy, when lines carry a written form, then `normalize_into` timing (report only):
 
 - Accuracy: right and wrong counts, then exact, digits right, and over-format rate per tag, for all lines and for firm lines (tags not ending in `!`). `--tag` keeps one tag (and its `!` form), `--all-failures` prints every miss, and `--no-<setting>` switches a setting off.
 - `.jsonl`: one JSON object per line. The spoken text is the first string field named `spoken`, `input`, `raw`, `text` or `sentence`; the written form is `written` or `gold`; the tag is `tag` or `category`. A line without spoken text is an error that names the line.
@@ -228,7 +155,7 @@ The default mode times `Normalizer::format` over a generated corpus (default 10�
 ### clm-learn
 
 ```text
-clm-learn [--plain=strong|all|off] <pairs dir with train.txt val.txt test.txt> <learned.txt out>
+cargo run --release --features internals --bin clm-learn -- [--plain=strong|all|off] <pairs dir with train.txt val.txt test.txt> <learned.txt out>
 ```
 
-Learns context rules, Tier 3 orders and shape counts from a pair corpus. See [TRAINING.md](TRAINING.md).
+Learns context rules, Tier 3 orders and shape counts from a pair corpus. It needs the `internals` feature. See [TRAINING.md](TRAINING.md).

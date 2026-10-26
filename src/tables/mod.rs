@@ -7,3 +7,4 @@ pub mod lexicon;
 pub mod shape;
 
 pub use bundle::{Aligned, MAX_CANONICAL, Tables, WORDS_FIRST_WORDS};
+pub use english::english;

@@ -1,4 +1,4 @@
-use clm_itn::{Normalizer, Setting, format_line};
+use clm_itn::{Normalizer, Setting};
 
 /// AP style: lone single numbers stay words.
 fn engine() -> Normalizer<'static> {
@@ -6,16 +6,7 @@ fn engine() -> Normalizer<'static> {
 }
 
 fn line(engine: &Normalizer, text: &str) -> String {
-    let mut out = String::new();
-    format_line(engine, text, &mut out);
-    out
-}
-
-fn run(engine: &Normalizer, text: &str) -> String {
-    let tokens: Vec<&[u8]> = text.split(' ').map(str::as_bytes).collect();
-    let mut out = [0u8; 256];
-    let done = engine.format(&tokens, &mut out).expect("format");
-    String::from_utf8(out[..done.len].to_vec()).expect("utf8")
+    engine.normalize(text)
 }
 
 #[test]
@@ -34,11 +25,11 @@ fn spoken_to_written() {
         ("the twenty first", "the 21st"),
         ("call me later", "call me later"),
         ("Call ME", "Call ME"),
-        ("five", "5"),
+        ("five", "five"),
     ];
     let mut failures = Vec::new();
     for (input, want) in cases {
-        let got = run(&engine, input);
+        let got = line(&engine, input);
         if got != want {
             failures.push(format!("{input:?} -> {got:?}, want {want:?}"));
         }
@@ -47,7 +38,7 @@ fn spoken_to_written() {
 }
 
 #[test]
-fn format_line_never_cuts_a_number() {
+fn normalize_never_cuts_a_number() {
     let engine = engine();
     let cases = [
         (
@@ -72,13 +63,13 @@ fn format_line_never_cuts_a_number() {
     ];
     for (input, want) in cases {
         let mut got = String::new();
-        format_line(&engine, input, &mut got);
+        engine.normalize_into(input, &mut got);
         assert_eq!(got, want, "{input:?}");
     }
 }
 
 #[test]
-fn format_line_keeps_punctuation_outside_numbers() {
+fn normalize_keeps_punctuation_outside_numbers() {
     let engine = engine();
     let cases = [
         ("it was twenty five, then thirty.", "it was 25, then 30."),
@@ -116,13 +107,13 @@ fn format_line_keeps_punctuation_outside_numbers() {
     ];
     for (input, want) in cases {
         let mut got = String::new();
-        format_line(&engine, input, &mut got);
+        engine.normalize_into(input, &mut got);
         assert_eq!(got, want, "{input:?}");
     }
 }
 
 #[test]
-fn format_line_keeps_ambiguous_runs_as_words() {
+fn normalize_keeps_ambiguous_runs_as_words() {
     let engine = engine();
     let cases = [
         ("uh twenty uh five", "uh twenty uh five"),
@@ -206,7 +197,7 @@ fn format_line_keeps_ambiguous_runs_as_words() {
     ];
     for (input, want) in cases {
         let mut got = String::new();
-        format_line(&engine, input, &mut got);
+        engine.normalize_into(input, &mut got);
         assert_eq!(got, want, "{input:?}");
     }
 }
@@ -244,7 +235,7 @@ fn single_digits_writes_lone_numbers_as_digits_and_keeps_ordinals() {
     for (input, want_ap, want_digits) in cases {
         for (e, want) in [(&ap, want_ap), (&digits, want_digits)] {
             let mut got = String::new();
-            format_line(e, input, &mut got);
+            e.normalize_into(input, &mut got);
             assert_eq!(got, want, "{input:?}");
         }
     }
@@ -317,7 +308,7 @@ fn a_label_word_writes_the_next_number_as_digits() {
         ("the first page", "the first page"),
     ] {
         let mut got = String::new();
-        format_line(&engine, input, &mut got);
+        engine.normalize_into(input, &mut got);
         assert_eq!(got, want, "{input:?}");
     }
 }
@@ -338,7 +329,7 @@ fn a_window_cut_keeps_the_word_before_a_number() {
         ("a b c d e five pm and see", "a b c d e 5 pm and see"),
     ] {
         let mut got = String::new();
-        format_line(&engine, input, &mut got);
+        engine.normalize_into(input, &mut got);
         assert_eq!(got, want, "{input:?}");
     }
 }
@@ -363,12 +354,12 @@ fn a_relative_time_stays_as_spoken() {
     for e in [&ap, &digits] {
         for input in same {
             let mut got = String::new();
-            format_line(e, input, &mut got);
+            e.normalize_into(input, &mut got);
             assert_eq!(got, input, "{e:?}");
         }
         for (input, want) in ranges {
             let mut got = String::new();
-            format_line(e, input, &mut got);
+            e.normalize_into(input, &mut got);
             assert_eq!(got, want, "{e:?}");
         }
     }
@@ -382,7 +373,7 @@ fn an_ordinal_after_code_stays_a_word() {
         ("code four oh two", "code 402"),
     ] {
         let mut got = String::new();
-        format_line(&engine, input, &mut got);
+        engine.normalize_into(input, &mut got);
         assert_eq!(got, want, "{input:?}");
     }
 }

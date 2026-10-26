@@ -1,6 +1,6 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use clm_itn::engine::Normalizer;
+use clm_itn::engine::{Internals, Normalizer};
 use clm_itn::types::{FormatError, MAX_TOKENS, SpanReceipt};
 
 const FORMAT_WINDOWS: usize = 200_000;
@@ -30,7 +30,7 @@ impl XorShift {
 }
 
 fn engine() -> Normalizer<'static> {
-    Normalizer::new(clm_itn::english())
+    Normalizer::new(clm_itn::tables::english())
 }
 
 fn token(r: &mut XorShift, words: &[&str]) -> Vec<u8> {
@@ -123,6 +123,35 @@ fn check_format(e: &Normalizer, toks: &[&[u8]], out_len: usize) -> Result<(), St
         return Err(format!("nondeterministic: {first:?} vs {second:?}"));
     }
     Ok(())
+}
+
+const LINES: usize = 50_000;
+const MAX_LINE_TOKENS: usize = 40;
+const GLUE: [&str; 9] = [" ", " ", " ", "  ", "\t", ", ", ". ", "-", "? "];
+
+fn line(r: &mut XorShift, words: &[&str]) -> String {
+    let n = r.below(MAX_LINE_TOKENS + 1);
+    let mut s = String::new();
+    for _ in 0..n {
+        s.push_str(&String::from_utf8_lossy(&token(r, words)));
+        s.push_str(GLUE[r.below(GLUE.len())]);
+    }
+    s
+}
+
+#[test]
+fn normalize_survives_random_lines() {
+    let e = clm_itn::Normalizer::english();
+    let words: Vec<&str> = WORDS.split_whitespace().collect();
+    let mut r = XorShift(SEED);
+    for i in 0..LINES {
+        let text = line(&mut r, &words);
+        let got = catch_unwind(AssertUnwindSafe(|| e.normalize(&text)))
+            .unwrap_or_else(|_| panic!("case {i}: normalize panicked on {text:?}"));
+        if text.trim().is_empty() {
+            assert_eq!(got, "", "case {i}: {text:?}");
+        }
+    }
 }
 
 #[test]

@@ -7,7 +7,7 @@ The shipped English tables are hand-built (`src/builder/english.rs`). A corpus p
 ## Pipeline
 
 1. `tools/pairgen/` runs NVIDIA NeMo-text-processing's English TN grammars (Apache-2.0) over public-domain text (Project Gutenberg books with the PG header and license removed; US federal works under 17 U.S.C. §105: Federal Register, National Weather Service forecast discussions). It writes aligned spoken/written span records, split 90/5/5 by sentence hash. The corpus stays outside the repository.
-2. `cargo run --release --bin clm-learn -- <pairs dir> src/builder/learned.txt` counts the train split, picks cue-word context classes, writes context rules (Wilson 95% lower bound confidence, backoff pair → left → right → hand rule), Tier 3 orders, and shape counts, and reports validation and test scores.
+2. `cargo run --release --features internals --bin clm-learn -- <pairs dir> src/builder/learned.txt` counts the train split, picks cue-word context classes, writes context rules (Wilson 95% lower bound confidence, backoff pair → left → right → hand rule), Tier 3 orders, and shape counts, and reports validation and test scores.
 3. `build.rs` applies `learned.txt` when it has entries. Hand rules are the floor: a learned rule overrides a hand rule only on the same side, or as a pair, with confidence at least the hand rule's.
 
 The Google Text Normalization dataset is licensed CC BY-NC-SA 4.0 and is not used for training or shipped tables.

@@ -6,8 +6,8 @@ use clm_itn::builder::learn::{
 };
 use clm_itn::builder::learned::{self, Learned};
 use clm_itn::builder::{Built, build};
-use clm_itn::engine::Normalizer;
 use clm_itn::engine::window::{format_line, windows};
+use clm_itn::engine::{Internals, Normalizer};
 use clm_itn::tables::Tables;
 use clm_itn::types::TAU;
 

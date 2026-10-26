@@ -1,4 +1,4 @@
-use clm_itn::{Normalizer, format_line};
+use clm_itn::Normalizer;
 
 use crate::lines::Case;
 use crate::score::{DIGITS_LEGEND, Failure, accuracy, digits_match};
@@ -80,7 +80,7 @@ pub fn score(engine: &Normalizer, cases: &[&Case], all_failures: bool) -> LineTa
     let mut got = String::new();
     for c in cases.iter().filter(|c| c.written.is_some()) {
         got.clear();
-        format_line(engine, &c.spoken, &mut got);
+        engine.normalize_into(&c.spoken, &mut got);
         tally.record(c, &got);
     }
     tally

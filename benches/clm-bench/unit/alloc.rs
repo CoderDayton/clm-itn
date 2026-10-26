@@ -24,6 +24,14 @@ fn alloc_and_realloc_each_count_once_dealloc_does_not() {
 }
 
 #[test]
+fn gate_fails_on_slow_p99_or_extra_allocations() {
+    let calls = 1_000_000;
+    assert!(crate::gate_holds(829.0, 1_010_000, calls));
+    assert!(!crate::gate_holds(1001.0, 1_010_000, calls));
+    assert!(!crate::gate_holds(829.0, 2_000_000, calls));
+}
+
+#[test]
 fn global_count_rises_across_vec_with_capacity() {
     let before = allocations();
     let v: Vec<u64> = Vec::with_capacity(16);
