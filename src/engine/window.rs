@@ -6,8 +6,8 @@ use crate::engine::Normalizer;
 use crate::engine::span::fold_left;
 use crate::tables::{Tables, WORDS_FIRST_WORDS};
 use crate::types::{
-    CLASS_UNKNOWN, MAX_TOKENS, ROLE_AND, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE, ROLE_OH,
-    ROLE_ORDINAL, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting, TokenInfo,
+    CLASS_UNKNOWN, CanonicalId, MAX_TOKENS, ROLE_AND, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE,
+    ROLE_OH, ROLE_ORDINAL, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting, TokenInfo, sense,
 };
 
 const LINE_OUT: usize = 512;
@@ -374,7 +374,7 @@ fn bare(core: &str) -> &str {
 
 /// Ranges of words that stay as spoken. Most lines have none, so this
 /// rarely allocates.
-fn guarded(words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<(usize, usize)> {
+fn guarded(t: &Tables, words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<(usize, usize)> {
     let n = words.len();
     let num = |i: usize| words[i].value();
     let filler = |i: usize| words[i].filler();
@@ -430,16 +430,16 @@ fn guarded(words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<(usize, usize
             && num(i + 1)
             && !num(i)
             && connector_start(words[i].core)
-            && let Some((from, to)) = relative_time(words, i)
+            && let Some((from, to)) = relative_time(t, words, i)
         {
             mark(from, to);
         }
         if num(i)
-            && let Some((from, to)) = word_sense(words, i)
+            && let Some((from, to)) = word_sense(t, words, i)
         {
             mark(from, to);
         }
-        if let Some(end) = mixed_fraction(words, i) {
+        if let Some(end) = mixed_fraction(t, words, i) {
             let j = if i > 0 && !num(i - 1) && words[i - 1].numeric() {
                 i - 1
             } else {
@@ -453,92 +453,47 @@ fn guarded(words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<(usize, usize
     marks
 }
 
-const FRACTION_WORDS: [&str; 14] = [
-    "half",
-    "quarter",
-    "third",
-    "thirds",
-    "quarters",
-    "halves",
-    "fourths",
-    "fifths",
-    "sixths",
-    "sevenths",
-    "eighths",
-    "ninths",
-    "tenths",
-    "sixteenths",
-];
-
-const SMALL: [&str; 9] = [
-    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
-];
-const ONE_AFTER_WORD: [&str; 27] = [
-    "no",
-    "which",
-    "whichever",
-    "this",
-    "that",
-    "the",
-    "each",
-    "every",
-    "any",
-    "other",
-    "old",
-    "new",
-    "last",
-    "next",
-    "same",
-    "right",
-    "wrong",
-    "bottom",
-    "top",
-    "best",
-    "first",
-    "big",
-    "small",
-    "little",
-    "main",
-    "basic",
-    "good",
-];
-/// After a plain word, "one" before these is a pronoun ("pick one that").
-const ONE_BEFORE_CLAUSE: [&str; 6] = ["is", "was", "that", "that's", "which", "who"];
-const ONE_BEFORE_WORD: [&str; 9] = [
-    "of", "more", "another", "at", "way", "thing", "sec", "every", "piece",
-];
-const GROUP: [&str; 3] = ["us", "them", "you"];
-const SIX_OF_ONE: &[&str] = &["six", "of", "one"];
-const CLOUD_NINE: &[&str] = &["cloud", "nine"];
-const TWO_HEADS: &[&str] = &["two", "heads", "are", "better", "than", "one"];
-const ELEVENTH_HOUR: &[&str] = &["eleventh", "hour"];
-const ONE_OFF: &[&str] = &["one", "off"];
-const TWENTY_TWENTY: &[&str] = &["twenty", "twenty", "vision"];
-
-/// The idioms `me` is part of, with its place in each.
-fn idioms_for(me: &str) -> &'static [(&'static [&'static str], usize)] {
-    let eq = |s: &str| me.eq_ignore_ascii_case(s);
-    match me.len() {
-        3 if eq("one") => &[(SIX_OF_ONE, 2), (TWO_HEADS, 5), (ONE_OFF, 0)],
-        3 if eq("six") => &[(SIX_OF_ONE, 0)],
-        3 if eq("two") => &[(TWO_HEADS, 0)],
-        4 if eq("nine") => &[(CLOUD_NINE, 1)],
-        6 if eq("twenty") => &[(TWENTY_TWENTY, 0), (TWENTY_TWENTY, 1)],
-        8 if eq("eleventh") => &[(ELEVENTH_HOUR, 0)],
-        _ => &[],
+/// Canonical ID of `w` without trailing punctuation, which the sense rules
+/// read: an unknown "us." reads as "us".
+fn bare_id(t: &Tables, w: &Word) -> CanonicalId {
+    let b = bare(w.core);
+    if b.len() == w.core.len() {
+        w.info.canonical
+    } else {
+        lookup(t, b).canonical
     }
+}
+
+fn senses(t: &Tables, w: &Word) -> u32 {
+    t.sense[bare_id(t, w) as usize]
+}
+
+/// The phrase in `t.idioms` that `words[i]` is part of, as a word range.
+fn idiom(
+    t: &Tables,
+    words: &[Word],
+    i: usize,
+    id: impl Fn(isize) -> CanonicalId,
+) -> Option<(usize, usize)> {
+    let me = words[i].info.canonical;
+    for row in &t.idioms {
+        let len = row.iter().position(|&c| c == 0).unwrap_or(row.len());
+        for p in (0..len).filter(|&p| row[p] == me) {
+            let start = -(p as isize);
+            if row[..len].iter().zip(start..).all(|(&c, d)| id(d) == c) {
+                return Some((i - p, i - p + len - 1));
+            }
+        }
+    }
+    None
 }
 
 /// A lone "one" to "nine" used as a word, not a count ("no one", "one of
 /// them", "the two of us", "two thirds", "cloud nine"). Returns the span that
 /// stays as spoken. Context never crosses punctuation.
-fn word_sense(words: &[Word], i: usize) -> Option<(usize, usize)> {
-    let eq = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
-    let any = |a: &str, set: &[&str]| set.iter().any(|s| eq(a, s));
-    let me = words[i].core;
-    let small = (3..=5).contains(&me.len()) && any(me, &SMALL);
-    let idioms = idioms_for(me);
-    if !small && idioms.is_empty() {
+fn word_sense(t: &Tables, words: &[Word], i: usize) -> Option<(usize, usize)> {
+    let me = t.sense[words[i].info.canonical as usize];
+    if me & (sense::COUNT | sense::IDIOM) == 0 {
         return None;
     }
     let at = |d: isize| -> Option<&Word> {
@@ -548,41 +503,40 @@ fn word_sense(words: &[Word], i: usize) -> Option<(usize, usize)> {
             && words[lo + 1..=hi].iter().all(|w| w.lead.is_empty());
         open.then(|| &words[k])
     };
-    let text = |d: isize| at(d).map_or("", |w| bare(w.core));
+    let id = |d: isize| at(d).map_or(0, |w| bare_id(t, w));
+    let is = |d: isize, bit: u32| t.sense[id(d) as usize] & bit != 0;
     let numeric = |d: isize| at(d).is_some_and(|w| w.numeric());
     if numeric(-1) {
         return None;
     }
-    for &(idiom, p) in idioms {
-        let start = -(p as isize);
-        if idiom.iter().zip(start..).all(|(w, d)| eq(text(d), w)) {
-            return Some((i - p, i - p + idiom.len() - 1));
-        }
+    if me & sense::IDIOM != 0
+        && let Some(span) = idiom(t, words, i, id)
+    {
+        return Some(span);
     }
-    if !small {
+    if me & sense::COUNT == 0 {
         return None;
     }
-    let (prev, next) = (text(-1), text(1));
-    let one = eq(me, "one");
-    if one && eq(next, "by") && eq(text(2), "one") {
+    let one = me & sense::ONE != 0;
+    if one && is(1, sense::BY) && is(2, sense::ONE) {
         return Some((i, i + 2));
     }
     // A cue word before it ("step one.", "number one is") makes it a label.
     let plain_prev = at(-1).is_none_or(|w| w.info.class == CLASS_UNKNOWN);
+    let (prev, next) = (t.sense[id(-1) as usize], t.sense[id(1) as usize]);
     let pronoun = one
-        && ((any(prev, &ONE_AFTER_WORD) && (!numeric(1) || eq(next, "and")))
-            || (plain_prev && (at(1).is_none() || any(next, &ONE_BEFORE_CLAUSE)))
-            || (any(next, &ONE_BEFORE_WORD) && !numeric(2))
-            || (eq(next, "day") && at(-1).is_none())
-            || (eq(prev, "in") && eq(next, "piece"))
-            || (eq(next, "in") && eq(text(2), "a") && eq(text(3), "million")));
-    let group = eq(next, "of") && any(text(2), &GROUP);
-    (pronoun || group || any(next, &FRACTION_WORDS)).then_some((i, i))
+        && ((prev & sense::ONE_AFTER != 0 && (!numeric(1) || next & sense::AND != 0))
+            || (plain_prev && (at(1).is_none() || next & sense::ONE_CLAUSE != 0))
+            || (next & sense::ONE_BEFORE != 0 && !numeric(2))
+            || (next & sense::DAY != 0 && at(-1).is_none())
+            || (prev & sense::IN != 0 && next & sense::PIECE != 0)
+            || (next & sense::IN != 0 && is(2, sense::A) && is(3, sense::MILLION)));
+    let group = next & sense::OF != 0 && is(2, sense::GROUP);
+    (pronoun || group || next & sense::FRACTION != 0).then_some((i, i))
 }
 
-const RELATIVE: [&str; 4] = ["to", "till", "past", "after"];
-
-/// Whether `core` starts like a [`RELATIVE`] word; skips most `relative_time` calls.
+/// Whether `core` starts like a `sense::RELATIVE` word; skips most
+/// `relative_time` calls.
 fn connector_start(core: &str) -> bool {
     match core.as_bytes() {
         [a, b, ..] => matches!(
@@ -592,31 +546,20 @@ fn connector_start(core: &str) -> bool {
         _ => false,
     }
 }
-const HOURS: [&str; 12] = [
-    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
-    "twelve",
-];
-const TIME_CUES: [&str; 9] = [
-    "at", "is", "it's", "was", "by", "until", "till", "around", "about",
-];
-
 /// A relative time such as "ten to four" or "half past six", with the
 /// connector at `i`. It reads as a clock time or as a range or score, so the
 /// span from the minute word to the hour stays as spoken. It counts only
 /// after a time cue ("at", "it's") or as a whole clause, and not when the
 /// hour is followed by a number word such as "pm" or a unit.
 #[inline(never)]
-fn relative_time(words: &[Word], i: usize) -> Option<(usize, usize)> {
-    let is = |k: usize, set: &[&str]| {
-        let b = bare(words[k].core);
-        set.iter().any(|s| s.eq_ignore_ascii_case(b))
-    };
+fn relative_time(t: &Tables, words: &[Word], i: usize) -> Option<(usize, usize)> {
+    let is = |k: usize, bit: u32| senses(t, &words[k]) & bit != 0;
     let plain = |k: usize| words[k].lead.is_empty() && words[k].trail.is_empty();
     let h = i + 1;
-    if i == 0 || h >= words.len() || !words[h].value() || !plain(i) || !is(i, &RELATIVE) {
+    if i == 0 || h >= words.len() || !words[h].value() || !plain(i) || !is(i, sense::RELATIVE) {
         return None;
     }
-    if !words[h].lead.is_empty() || !is(h, &HOURS) {
+    if !words[h].lead.is_empty() || !is(h, sense::HOUR) {
         return None;
     }
     if h + 1 < words.len() && words[h].trail.is_empty() && words[h + 1].numeric() {
@@ -626,9 +569,9 @@ fn relative_time(words: &[Word], i: usize) -> Option<(usize, usize)> {
     if !words[m].trail.is_empty() {
         return None;
     }
-    let from = if m > 0 && is(m - 1, &["twenty"]) && is(m, &["five"]) && plain(m - 1) {
+    let from = if m > 0 && is(m - 1, sense::TWENTY) && is(m, sense::FIVE) && plain(m - 1) {
         m - 1
-    } else if is(m, &["five", "ten", "twenty", "quarter", "half"]) {
+    } else if is(m, sense::MINUTE) {
         m
     } else {
         return None;
@@ -636,31 +579,28 @@ fn relative_time(words: &[Word], i: usize) -> Option<(usize, usize)> {
     if from > 0 && words[from - 1].value() && words[from - 1].trail.is_empty() {
         return None;
     }
-    let c = if from > 0 && is(from, &["quarter"]) && is(from - 1, &["a"]) && plain(from - 1) {
+    let c = if from > 0 && is(from, sense::QUARTER) && is(from - 1, sense::A) && plain(from - 1) {
         from - 1
     } else {
         from
     };
     let opens = c == 0 || !words[c - 1].trail.is_empty() || !words[c].lead.is_empty();
     let closes = h + 1 == words.len() || !words[h].trail.is_empty();
-    let cue = !opens && is(c - 1, &TIME_CUES);
+    let cue = !opens && is(c - 1, sense::TIME_CUE);
     (cue || (opens && closes)).then_some((from, h))
 }
 
 #[inline(always)]
-fn mixed_fraction(words: &[Word], i: usize) -> Option<usize> {
-    let at = |k: usize| words.get(k).map(|w| bare(w.core));
-    if !at(i)?.eq_ignore_ascii_case("and") {
+fn mixed_fraction(t: &Tables, words: &[Word], i: usize) -> Option<usize> {
+    // "and" is a lexicon word, so its punctuation is already split off.
+    if t.sense[words.get(i)?.info.canonical as usize] & sense::AND == 0 {
         return None;
     }
+    let at = |k: usize| words.get(k).map(|w| senses(t, w));
     let article = at(i + 1)?;
     let fraction = at(i + 2)?;
-    let count = |a: &str| SMALL.iter().any(|s| s.eq_ignore_ascii_case(a));
-    ((article.eq_ignore_ascii_case("a") || article.eq_ignore_ascii_case("an") || count(article))
-        && FRACTION_WORDS
-            .iter()
-            .any(|f| f.eq_ignore_ascii_case(fraction)))
-    .then_some(i + 2)
+    (article & (sense::A | sense::AN | sense::COUNT) != 0 && fraction & sense::FRACTION != 0)
+        .then_some(i + 2)
 }
 
 /// Whether nothing but a space sits between `a` and `b`.
@@ -1237,7 +1177,7 @@ fn format_piece<'a>(
         let role = t.role_of[lookup(t, core).class as usize] & 0x0F;
         COUNTING_ROLES >> role & 1 == 1
     };
-    for (from, to) in guarded(&words, counting) {
+    for (from, to) in guarded(t, &words, counting) {
         for w in &mut words[from..=to] {
             w.flags |= W_KEEP;
         }

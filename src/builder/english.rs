@@ -1,7 +1,7 @@
 use crate::hash::next_seed;
 use crate::types::{
     CLASS_UNKNOWN, ClassId, DOMAIN_CENTS, DOMAIN_MEASURE, DOMAIN_MEASURE_POWER,
-    DOMAIN_MEASURE_PREFIX, DOMAIN_MONEY, DOMAIN_PERCENT, DomainId, Role, Setting,
+    DOMAIN_MEASURE_PREFIX, DOMAIN_MONEY, DOMAIN_PERCENT, DomainId, Role, Setting, sense,
 };
 
 pub const DIGIT: ClassId = 2;
@@ -651,6 +651,118 @@ pub const PLURAL: &[&str] = &[
 pub const WORDS_FIRST: &[&str] = &[
     "one", "first", "second", "two", "three", "four", "five", "six", "seven", "eight", "nine",
     "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth",
+];
+
+/// Words of each `types::sense` bit. A word not in the lexicon gets an entry
+/// of class `CLASS_UNKNOWN`, which only carries these bits.
+pub const SENSES: &[(u32, &[&str])] = &[
+    (
+        sense::COUNT,
+        &[
+            "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+        ],
+    ),
+    (sense::ONE, &["one"]),
+    (
+        sense::ONE_AFTER,
+        &[
+            "no",
+            "which",
+            "whichever",
+            "this",
+            "that",
+            "the",
+            "each",
+            "every",
+            "any",
+            "other",
+            "old",
+            "new",
+            "last",
+            "next",
+            "same",
+            "right",
+            "wrong",
+            "bottom",
+            "top",
+            "best",
+            "first",
+            "big",
+            "small",
+            "little",
+            "main",
+            "basic",
+            "good",
+        ],
+    ),
+    (
+        sense::ONE_CLAUSE,
+        &["is", "was", "that", "that's", "which", "who"],
+    ),
+    (
+        sense::ONE_BEFORE,
+        &[
+            "of", "more", "another", "at", "way", "thing", "sec", "every", "piece",
+        ],
+    ),
+    (sense::GROUP, &["us", "them", "you"]),
+    (
+        sense::FRACTION,
+        &[
+            "half",
+            "quarter",
+            "third",
+            "thirds",
+            "quarters",
+            "halves",
+            "fourths",
+            "fifths",
+            "sixths",
+            "sevenths",
+            "eighths",
+            "ninths",
+            "tenths",
+            "sixteenths",
+        ],
+    ),
+    (sense::RELATIVE, &["to", "till", "past", "after"]),
+    (
+        sense::HOUR,
+        &[
+            "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+            "eleven", "twelve",
+        ],
+    ),
+    (sense::MINUTE, &["five", "ten", "twenty", "quarter", "half"]),
+    (
+        sense::TIME_CUE,
+        &[
+            "at", "is", "it's", "was", "by", "until", "till", "around", "about",
+        ],
+    ),
+    (sense::A, &["a"]),
+    (sense::AN, &["an"]),
+    (sense::AND, &["and"]),
+    (sense::BY, &["by"]),
+    (sense::DAY, &["day"]),
+    (sense::IN, &["in"]),
+    (sense::PIECE, &["piece"]),
+    (sense::MILLION, &["million"]),
+    (sense::OF, &["of"]),
+    (sense::TWENTY, &["twenty"]),
+    (sense::FIVE, &["five"]),
+    (sense::QUARTER, &["quarter"]),
+];
+
+/// Phrases whose number words stay words. A match tried from a word follows
+/// this order, then the word's place in the phrase.
+pub const IDIOMS: &[&[&str]] = &[
+    &["six", "of", "one"],
+    &["two", "heads", "are", "better", "than", "one"],
+    &["one", "off"],
+    &["cloud", "nine"],
+    &["twenty", "twenty", "vision"],
+    &["eleventh", "hour"],
 ];
 
 pub fn kind_mass(kind: &str) -> f64 {

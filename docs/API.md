@@ -84,7 +84,7 @@ Rewrites a line of any length and appends the result to `out`. Clear `out` betwe
 - **Noon** (`Setting::Noon`): "twelve noon" and "twelve midnight" become `noon` and `midnight`.
 - **Whitespace:** every space, tab and line break prints as written, including leading and trailing whitespace ("  twenty five  " → `  25  `). Gaps inside a span that becomes one number go with the words it replaces ("it  costs  twenty five  dollars" → `it  costs  $25`). A tab or line break (`\t`, `\n`, `\v`, `\f`, `\r`, U+0085, U+2028, U+2029) ends the context: no number, window or rule crosses it ("twenty\nfive" → `20\nfive`).
 
-It allocates about once per call on utterances of up to 8 tokens, and at most 5 times per line with a reused `String` (8 with a new one) on the dictation gold set. The bench gates its p99 at 1.00 µs on utterances of up to 8 tokens; a 168-word paragraph takes p50 12.9–13.5 µs ([PERFORMANCE.md](PERFORMANCE.md)).
+It allocates about once per call on utterances of up to 8 tokens, and at most 5 times per line with a reused `String` (8 with a new one) on the dictation gold set. The bench gates its p99 at 1.00 µs on utterances of up to 8 tokens; a 168-word paragraph takes p50 12.5 µs ([PERFORMANCE.md](PERFORMANCE.md)).
 
 ## Setting
 

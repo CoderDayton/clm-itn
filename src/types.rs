@@ -3,6 +3,46 @@ pub const MAX_TOKENS: usize = 8;
 /// Rows in `Tables::left_folds`.
 pub const MAX_LEFT_FOLDS: usize = 2;
 pub const MAX_KEY_LEN: usize = 15;
+/// Rows in `Tables::idioms`, and words in one.
+pub const MAX_IDIOMS: usize = 8;
+pub const MAX_IDIOM_LEN: usize = 6;
+
+/// Word-sense bits of a lexicon word, in `Tables::sense`. The line rules that
+/// keep a number word as a word read them.
+pub mod sense {
+    /// "one" to "nine".
+    pub const COUNT: u32 = 1;
+    pub const ONE: u32 = 1 << 1;
+    /// "one" after these is a pronoun ("the old one").
+    pub const ONE_AFTER: u32 = 1 << 2;
+    /// "one" before these closes a clause ("pick one that works").
+    pub const ONE_CLAUSE: u32 = 1 << 3;
+    /// "one" before these is a pronoun when no number follows ("one of").
+    pub const ONE_BEFORE: u32 = 1 << 4;
+    /// A count before "of" and these is a word ("the two of us").
+    pub const GROUP: u32 = 1 << 5;
+    pub const FRACTION: u32 = 1 << 6;
+    /// A word of a `Tables::idioms` row.
+    pub const IDIOM: u32 = 1 << 7;
+    /// Joins a minute word to an hour ("ten to four").
+    pub const RELATIVE: u32 = 1 << 8;
+    pub const HOUR: u32 = 1 << 9;
+    pub const MINUTE: u32 = 1 << 10;
+    /// A relative time after these is a clock reading ("it is ten to four").
+    pub const TIME_CUE: u32 = 1 << 11;
+    pub const A: u32 = 1 << 12;
+    pub const AN: u32 = 1 << 13;
+    pub const BY: u32 = 1 << 14;
+    pub const DAY: u32 = 1 << 15;
+    pub const IN: u32 = 1 << 16;
+    pub const PIECE: u32 = 1 << 17;
+    pub const MILLION: u32 = 1 << 18;
+    pub const OF: u32 = 1 << 19;
+    pub const TWENTY: u32 = 1 << 20;
+    pub const FIVE: u32 = 1 << 21;
+    pub const QUARTER: u32 = 1 << 22;
+    pub const AND: u32 = 1 << 23;
+}
 
 pub type ClassId = u8;
 pub const CLASS_BOUNDARY: ClassId = 0;

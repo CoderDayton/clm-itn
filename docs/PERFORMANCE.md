@@ -10,11 +10,11 @@ Measured latency and allocation counts for `Normalizer::normalize`, how they wer
 
 ## Verdict
 
-**`Normalizer::normalize_into` meets its 1.00 µs p99 budget on utterances of up to 8 tokens: p99 905.4–908.8 ns over 10⁶ calls in each of 3 runs, about 1.1× headroom, with about one allocation per call. Whole dictation lines run longer: p99 1131–1162 ns across 3 runs on a shared machine, so the budget holds for short utterances, not for every line. A 168-word paragraph takes p50 12.9–13.5 µs in one call, about 77–80 ns per word, and p50 11.0–11.5 µs when normalized sentence by sentence.**
+**`Normalizer::normalize_into` meets its 1.00 µs p99 budget on utterances of up to 8 tokens: p99 841.3–847.4 ns over 10⁶ calls in each of 3 runs, about 1.2× headroom, with about one allocation per call. Whole dictation lines run longer: p99 1005–1032 ns across 3 runs on a shared machine, so the budget holds for short utterances, not for every line. A 168-word paragraph takes p50 12.5 µs in one call, about 75 ns per word, and p50 10.5–10.6 µs when normalized sentence by sentence.**
 
 ## How the numbers were taken
 
-- **Machine:** Intel Core i9-13900K, one P-core pinned with `taskset -c 2`, Linux 7.0, rustc 1.97. The machine is shared (load average 3.6–3.8 during these runs), so other work ran at the same time.
+- **Machine:** Intel Core i9-13900K, one P-core pinned with `taskset -c 2`, Linux 7.0, rustc 1.97. The machine is shared (load average 2.6–2.7 during these runs), so other work ran at the same time.
 - **Build:** `cargo bench` uses the `bench` profile, which inherits `release`: `opt-level = 3`, fat LTO, 16 codegen units.
 - **Timer:** `lfence; rdtsc` before and `rdtscp; lfence` after each call, 0.334 ns per tick, invariant TSC. The timer's own cost (median of 10⁴ empty pairs, 20 ticks = 6.7 ns) is subtracted. The resolution gate (one tick ≤ 10 ns) passes.
 - **Gate corpus:** 10⁶ generated utterances of up to 8 tokens (seed 1), mixing cardinals, ordinals, decimals, times and identifiers with non-number words, each joined into one line. An untimed pass over the whole corpus runs first, then each `normalize_into` call into one reused `String` is timed separately. The run passes with p99 ≤ 1000 ns and at most 1.05 allocations per call.
@@ -38,9 +38,9 @@ The same runs are `cargo script bench`, `cargo script bench-tiers`, `cargo scrip
 
 | Run | Core | p50      | p99      | p99.9     | max      | Allocations per call |
 | --- | ---- | -------- | -------- | --------- | -------- | -------------------- |
-| 1   | 2    | 491.5 ns | 908.8 ns | 1670.0 ns | 21820 ns | 1.01                 |
-| 2   | 2    | 494.1 ns | 905.4 ns | 1586.5 ns | 10034 ns | 1.01                 |
-| 3   | 2    | 493.5 ns | 908.8 ns | 1641.3 ns | 13350 ns | 1.01                 |
+| 1   | 2    | 464.7 ns | 841.3 ns | 1188.6 ns | 13725 ns | 1.01                 |
+| 2   | 2    | 468.1 ns | 847.4 ns | 1372.9 ns | 20465 ns | 1.01                 |
+| 3   | 2    | 465.4 ns | 842.0 ns | 1177.9 ns | 13458 ns | 1.01                 |
 
 The one allocation is the line's word list.
 
@@ -61,9 +61,9 @@ The one allocation is the line's word list.
 
 | Run | Core | p50      | p99       | p99.9     | max      | Lines over 1 µs at p99 |
 | --- | ---- | -------- | --------- | --------- | -------- | ---------------------- |
-| 1   | 2    | 539.5 ns | 1141.2 ns | 1714.1 ns | 227234 ns | 18 of 359             |
-| 2   | 2    | 532.2 ns | 1130.5 ns | 1720.1 ns | 20171 ns  | 20 of 359             |
-| 3   | 2    | 544.9 ns | 1161.9 ns | 1746.1 ns | 26297 ns  | 26 of 359             |
+| 1   | 2    | 506.8 ns | 1027.6 ns | 1542.5 ns | 30491 ns  | 14 of 359             |
+| 2   | 2    | 500.1 ns | 1004.9 ns | 1325.5 ns | 117200 ns | 9 of 359              |
+| 3   | 2    | 506.1 ns | 1032.3 ns | 1547.8 ns | 33012 ns  | 13 of 359             |
 
 The slowest lines are long lines with several number spans or a money phrase.
 
@@ -74,16 +74,16 @@ The slowest lines are long lines with several number spans or a money phrase.
 
 ### Paragraph
 
-| Run | Core | Input            | p50     | p99     | p99.9   | max     |
-| --- | ---- | ---------------- | ------- | ------- | ------- | ------- |
-| 1   | 2    | One call         | 12.9 µs | 15.1 µs | 19.7 µs | 38.8 µs |
-| 1   | 2    | 9 sentences      | 11.5 µs | 13.3 µs | 16.6 µs | 27.2 µs |
-| 2   | 2    | One call         | 13.5 µs | 15.9 µs | 22.0 µs | 34.9 µs |
-| 2   | 2    | 9 sentences      | 11.3 µs | 13.0 µs | 15.4 µs | 21.7 µs |
-| 3   | 2    | One call         | 13.2 µs | 15.9 µs | 25.1 µs | 33.5 µs |
-| 3   | 2    | 9 sentences      | 11.0 µs | 13.1 µs | 17.9 µs | 28.3 µs |
+| Run | Core | Input            | p50     | p99     | p99.9   | max      |
+| --- | ---- | ---------------- | ------- | ------- | ------- | -------- |
+| 1   | 2    | One call         | 12.5 µs | 14.6 µs | 20.3 µs | 31.9 µs  |
+| 1   | 2    | 9 sentences      | 10.5 µs | 12.4 µs | 18.5 µs | 34.1 µs  |
+| 2   | 2    | One call         | 12.5 µs | 14.6 µs | 20.5 µs | 29.0 µs  |
+| 2   | 2    | 9 sentences      | 10.6 µs | 12.4 µs | 14.0 µs | 17.0 µs  |
+| 3   | 2    | One call         | 12.5 µs | 14.7 µs | 20.4 µs | 33.5 µs  |
+| 3   | 2    | 9 sentences      | 10.5 µs | 12.5 µs | 16.2 µs | 221.6 µs |
 
-Load average was 3.6–3.8. The call allocates 3 times with a reused `String` and 9 times with a new one.
+Load average was 2.6–2.7. The call allocates 3 times with a reused `String` and 9 times with a new one.
 
 ## Cost model
 
@@ -92,6 +92,7 @@ Load average was 3.6–3.8. The call allocates 3 times with a reused `String` an
 | Step              | Work                                                                                              | Table                                                | Size             |
 | ----------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ---------------- |
 | Lexicon           | Two bucket loads per word, then one 16-byte SIMD compare per slot                                 | Cuckoo lexicon, 1024 buckets of 4 keys, plus payload | 64 KB + 16 KB    |
+| Word sense        | One 32-bit read per word a line rule checks                                                       | `sense`, by canonical ID, plus 8 idiom rows          | 16 KB            |
 | Span segmentation | One role read per word                                                                            | `role_of`                                            | 256 B            |
 | Shape lookup      | One bucket load per span                                                                          | Shape table, 512 buckets                             | 32 KB            |
 | Context           | One byte read per span                                                                            | Context table, 256×256                               | 64 KB            |
@@ -104,7 +105,7 @@ Every table is `static`, read-only, and starts on a 64-byte boundary, so each bu
 
 - **The gate uses a generated corpus:** no production logs ship with the repository, so the gate replays generated utterances of up to 8 tokens. `--corpus` scores and times your own logs, but only reports.
 - **Long lines can exceed 1 µs:** cost grows with line length and with the number of number spans. The budget covers short utterances.
-- **Headroom:** p99 is 91% of the budget.
-- **Max is not bounded:** the slowest single call ranged from 10.0 to 21.8 µs across gate runs. This is a time-shared OS, and only p99 and allocations are gated.
+- **Headroom:** p99 is 85% of the budget.
+- **Max is not bounded:** the slowest single call ranged from 13.5 to 20.5 µs across gate runs. This is a time-shared OS, and only p99 and allocations are gated.
 - **AArch64 has never run:** the NEON lookup and the `cntvct_el0` timer compile and pass clippy, but no ARM hardware has run them. On cores before Armv8.6 (Apple M1: 24 MHz, about 42 ns per tick), the counter fails the resolution gate, and the bench needs the PMU cycle counter with the core frequency locked.
 - **Cache-cold calls are not measured:** the numbers come after a full warm-up pass.

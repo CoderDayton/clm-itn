@@ -16,8 +16,8 @@ use crate::types::{
     CANDIDATE_NONE, CLASS_BOUNDARY, CLASS_UNKNOWN, CandidateId, CanonicalId, CellIndex, ClassId,
     DOMAIN_CARDINAL, DOMAIN_CENTS, DOMAIN_COUNT, DOMAIN_IDENTIFIER, DOMAIN_MEASURE,
     DOMAIN_MEASURE_POWER, DOMAIN_MEASURE_PREFIX, DOMAIN_MONEY, DOMAIN_PERCENT, DOMAIN_TIME,
-    DomainId, MAX_TOKENS, ROLE_NONE, Role, SHAPE_COUNT, ShapeId, cell_domain, cell_index,
-    cell_shape,
+    DomainId, MAX_IDIOM_LEN, MAX_IDIOMS, MAX_TOKENS, ROLE_NONE, Role, SHAPE_COUNT, ShapeId,
+    cell_domain, cell_index, cell_shape, sense,
 };
 use learned::{ClassRef, Learned};
 
@@ -59,6 +59,8 @@ pub enum BuildError {
     TooManyClasses,
     LitvValue,
     BadShapeKey,
+    /// `english::IDIOMS` outgrows `Tables::idioms`.
+    TooManyIdioms,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -241,6 +243,14 @@ fn build_lexicon(
         }
         push_entry(&mut entries, t, word, first_cue + k, 0)?;
     }
+    let mut known: std::collections::HashSet<Vec<u8>> =
+        entries.iter().map(|e| e.0.to_ascii_lowercase()).collect();
+    let sense_words = english::SENSES.iter().flat_map(|s| s.1.iter());
+    for &word in sense_words.chain(english::IDIOMS.iter().copied().flatten()) {
+        if known.insert(word.as_bytes().to_ascii_lowercase()) {
+            push_entry(&mut entries, t, word, CLASS_UNKNOWN, 0)?;
+        }
+    }
     t.lexicon = Lexicon::build(&entries).map_err(BuildError::Lexicon)?;
     Ok(LexiconInfo {
         entries: entries.len(),
@@ -249,6 +259,25 @@ fn build_lexicon(
         first_cue,
         cue_classes,
     })
+}
+
+fn mark_senses(t: &mut Tables) -> Result<(), BuildError> {
+    for &(bit, words) in english::SENSES {
+        for w in words {
+            t.sense[t.lexicon.lookup(w.as_bytes()).canonical as usize] |= bit;
+        }
+    }
+    if english::IDIOMS.len() > MAX_IDIOMS || english::IDIOMS.iter().any(|i| i.len() > MAX_IDIOM_LEN)
+    {
+        return Err(BuildError::TooManyIdioms);
+    }
+    for (row, idiom) in t.idioms.iter_mut().zip(english::IDIOMS) {
+        for (slot, w) in row.iter_mut().zip(*idiom) {
+            *slot = t.lexicon.lookup(w.as_bytes()).canonical;
+            t.sense[*slot as usize] |= sense::IDIOM;
+        }
+    }
+    Ok(())
 }
 
 const AFFIX_SPREAD: f64 = 0.01;
@@ -376,6 +405,7 @@ pub fn build(learned: &Learned) -> Result<Built, BuildError> {
         let c = t.lexicon.lookup(w.as_bytes()).canonical as usize;
         t.words_first[c / 64] |= 1 << (c % 64);
     }
+    mark_senses(&mut t)?;
     for (domain, len) in AFFIX_DOMAINS {
         t.affix_len[domain as usize] = len;
     }
@@ -1808,6 +1838,29 @@ mod tests {
     }
 
     #[test]
+    fn english_sense_bits_and_idioms_come_from_the_lists() {
+        let t = build_english().expect("build");
+        let info = |w: &str| t.lexicon.lookup(w.as_bytes());
+        let sense = |w: &str| t.sense[info(w).canonical as usize];
+        for &(bit, words) in english::SENSES {
+            for w in words {
+                assert_ne!(sense(w) & bit, 0, "{w}");
+            }
+        }
+        assert_eq!(info("old").class, CLASS_UNKNOWN);
+        assert_ne!(info("old").canonical, 0);
+        assert_eq!(sense("one") & sense::ONE_AFTER, 0);
+        assert_eq!(sense("hello"), 0);
+        for (row, idiom) in t.idioms.iter().zip(english::IDIOMS) {
+            let want: Vec<CanonicalId> = idiom.iter().map(|w| info(w).canonical).collect();
+            assert_eq!(&row[..idiom.len()], &want[..], "{idiom:?}");
+            assert!(row[idiom.len()..].iter().all(|&c| c == 0));
+            assert!(idiom.iter().all(|w| sense(w) & sense::IDIOM != 0));
+        }
+        assert!(t.idioms[english::IDIOMS.len()..].iter().all(|r| r[0] == 0));
+    }
+
+    #[test]
     fn english_marks_only_the_words_first_list() {
         let t = build_english().expect("build");
         let marked = |w: &str| {
@@ -2025,13 +2078,13 @@ mod tests {
     #[test]
     fn learned_cues_join_the_lexicon_as_context_classes() {
         let l = Learned {
-            cues: vec![("around".into(), 0), ("of".into(), 1)],
+            cues: vec![("near".into(), 0), ("during".into(), 1)],
             ..Learned::default()
         };
         let b = build(&l).expect("build");
         let first = b.first_cue;
-        assert_eq!(b.tables.lexicon.lookup(b"around").class, first);
-        assert_eq!(b.tables.lexicon.lookup(b"of").class, first + 1);
+        assert_eq!(b.tables.lexicon.lookup(b"near").class, first);
+        assert_eq!(b.tables.lexicon.lookup(b"during").class, first + 1);
         assert_eq!(b.tables.role_of[first as usize], 0);
         assert_eq!(b.class_ref(first + 1), ClassRef::Cue(1));
         assert_eq!(b.class_ref(english::THE), ClassRef::Word("the".into()));

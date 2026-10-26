@@ -5,7 +5,8 @@ use crate::tables::context::ContextLut;
 use crate::tables::lexicon::{self, Lexicon};
 use crate::tables::shape::{self, ShapeTable};
 use crate::types::{
-    CELL_COUNT, CandidateId, ClassId, DOMAIN_COUNT, MAX_LEFT_FOLDS, Role, SHAPE_COUNT, SettingBits,
+    CELL_COUNT, CandidateId, CanonicalId, ClassId, DOMAIN_COUNT, MAX_IDIOM_LEN, MAX_IDIOMS,
+    MAX_LEFT_FOLDS, Role, SHAPE_COUNT, SettingBits,
 };
 
 pub const MAX_CANONICAL: usize = 4096;
@@ -45,6 +46,8 @@ pub struct Tables {
     pub affix_len: Aligned<[u8; DOMAIN_COUNT]>,
     pub words_first: Aligned<[u64; WORDS_FIRST_WORDS]>,
     pub plural: Aligned<[u64; WORDS_FIRST_WORDS]>,
+    /// `types::sense` bits of each word, by canonical ID.
+    pub sense: Aligned<[u32; MAX_CANONICAL]>,
     pub starts: Aligned<[u64; 4]>,
     pub per_stop: Aligned<[u64; 4]>,
     pub per_units: Aligned<[u64; 4]>,
@@ -66,6 +69,9 @@ pub struct Tables {
     /// as its left context ("it is" acts like "at"). The context table reads
     /// `a` and `b` anywhere else as unknown. A zero row does nothing.
     pub left_folds: [[ClassId; 3]; MAX_LEFT_FOLDS],
+    /// Phrases whose number words stay words ("cloud nine"), as canonical
+    /// IDs. A row ends at its first zero.
+    pub idioms: [[CanonicalId; MAX_IDIOM_LEN]; MAX_IDIOMS],
 }
 
 impl Tables {
@@ -86,6 +92,7 @@ impl Tables {
         affix_len: Aligned([0; DOMAIN_COUNT]),
         words_first: Aligned([0; WORDS_FIRST_WORDS]),
         plural: Aligned([0; WORDS_FIRST_WORDS]),
+        sense: Aligned([0; MAX_CANONICAL]),
         starts: Aligned([0; 4]),
         per_stop: Aligned([0; 4]),
         per_units: Aligned([0; 4]),
@@ -99,6 +106,7 @@ impl Tables {
         words_first_roles: 0,
         lead_skip_roles: 0,
         left_folds: [[0; 3]; MAX_LEFT_FOLDS],
+        idioms: [[0; MAX_IDIOM_LEN]; MAX_IDIOMS],
     };
 
     #[cfg(not(clm_no_std))]
@@ -137,6 +145,7 @@ mod tests {
             offset_of!(Tables, affix_len),
             offset_of!(Tables, words_first),
             offset_of!(Tables, plural),
+            offset_of!(Tables, sense),
             offset_of!(Tables, starts),
             offset_of!(Tables, per_stop),
             offset_of!(Tables, per_units),

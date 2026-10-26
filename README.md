@@ -10,7 +10,7 @@ Inverse text normalization for English: spoken numbers in, written numbers out.
 
 </div>
 
-Three lookups over static tables, no model, no dependencies. `normalize` runs at p99 905–909 ns per utterance of up to 8 tokens, and p50 12.9–13.5 µs on a 168-word paragraph ([performance](docs/PERFORMANCE.md)).
+Three lookups over static tables, no model, no dependencies. `normalize` runs at p99 841–847 ns per utterance of up to 8 tokens, and p50 12.5 µs on a 168-word paragraph ([performance](docs/PERFORMANCE.md)).
 
 ## Features
 

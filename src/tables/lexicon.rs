@@ -9,9 +9,17 @@ pub type Key = [u8; 16];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuildError {
-    InvalidLength { index: usize },
-    ReservedClass { index: usize },
-    Duplicate { index: usize },
+    InvalidLength {
+        index: usize,
+    },
+    /// The boundary class is no word's class. An unknown-class entry is a word
+    /// with no part in the number tables that still has a canonical ID.
+    ReservedClass {
+        index: usize,
+    },
+    Duplicate {
+        index: usize,
+    },
     TooManyEntries,
     NoSeed,
 }
@@ -141,7 +149,7 @@ mod build {
     use super::{
         BUCKETS, Bucket, BuildError, Key, Lexicon, SLOTS, SLOTS_PER_BUCKET, bucket_pair, fold_key,
     };
-    use crate::types::{CLASS_UNKNOWN, CanonicalId, ClassId};
+    use crate::types::{CLASS_BOUNDARY, CanonicalId, ClassId};
 
     const EMPTY_SLOT: u32 = u32::MAX;
     const MAX_KICKS: usize = 1024;
@@ -190,7 +198,7 @@ mod build {
             let mut seen = std::collections::HashSet::with_capacity(entries.len());
             for (index, &(token, _, class)) in entries.iter().enumerate() {
                 let key = fold_key(token).ok_or(BuildError::InvalidLength { index })?;
-                if class <= CLASS_UNKNOWN {
+                if class == CLASS_BOUNDARY {
                     return Err(BuildError::ReservedClass { index });
                 }
                 if !seen.insert(key) {
@@ -468,6 +476,19 @@ mod tests {
     }
 
     #[test]
+    fn build_keeps_an_unknown_class_word_with_its_canonical() {
+        let lex = Lexicon::build(&[(b"old", 7, CLASS_UNKNOWN), (b"five", 8, 2)]).expect("build");
+        assert_eq!(
+            lex.lookup(b"OLD"),
+            TokenInfo {
+                canonical: 7,
+                class: CLASS_UNKNOWN
+            }
+        );
+        assert_eq!(lex.lookup(b"older"), MISS);
+    }
+
+    #[test]
     fn build_rejects_bad_entries() {
         assert_eq!(
             Lexicon::build(&[(b"ok", 1, 2), (b"sixteen_bytes_xx", 2, 2)]).err(),
@@ -476,10 +497,6 @@ mod tests {
         assert_eq!(
             Lexicon::build(&[(b"", 1, 2)]).err(),
             Some(BuildError::InvalidLength { index: 0 })
-        );
-        assert_eq!(
-            Lexicon::build(&[(b"a", 1, 2), (b"b", 2, 1)]).err(),
-            Some(BuildError::ReservedClass { index: 1 })
         );
         assert_eq!(
             Lexicon::build(&[(b"zero", 1, 0)]).err(),

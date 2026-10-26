@@ -63,6 +63,11 @@ pub fn to_rust(t: &Tables, name: &str) -> String {
     );
     let _ = writeln!(
         s,
+        "    sense: crate::tables::Aligned({}),",
+        sparse("u32", &t.sense[..])
+    );
+    let _ = writeln!(
+        s,
         "    starts: crate::tables::Aligned({}),",
         sparse_hex(&t.starts[..])
     );
@@ -94,6 +99,7 @@ pub fn to_rust(t: &Tables, name: &str) -> String {
     let _ = writeln!(s, "    words_first_roles: {:#06x},", t.words_first_roles);
     let _ = writeln!(s, "    lead_skip_roles: {:#06x},", t.lead_skip_roles);
     let _ = writeln!(s, "    left_folds: {:?},", t.left_folds);
+    let _ = writeln!(s, "    idioms: {:?},", t.idioms);
     s.push_str("};\n");
     s
 }
