@@ -40,6 +40,8 @@ pub const MAY: ClassId = 34;
 pub const PER: ClassId = 35;
 pub const DEGREE: ClassId = 36;
 pub const TEMP: ClassId = 37;
+/// A word that names a numbered item: "step five" -> "step 5".
+pub const LABEL: ClassId = 38;
 pub const PER_UNITS: [ClassId; 5] = [UNIT, POWER, PREFIX, DEGREE, TEMP];
 pub const PAIR_ONLY: [ClassId; 2] = [DEGREE, TEMP];
 
@@ -54,7 +56,7 @@ pub use crate::types::{
 
 pub const TIME_RIGHT: [ClassId; 3] = [AM, PM, OCLOCK];
 pub const TIME_LEFT: ClassId = AT;
-pub const IDENTIFIER_LEFT: [ClassId; 6] = [NUMBER, ROOM, FLIGHT, CODE, PIN, EXTENSION];
+pub const IDENTIFIER_LEFT: [ClassId; 7] = [NUMBER, ROOM, FLIGHT, CODE, PIN, EXTENSION, LABEL];
 
 pub const SRC_CARDINAL: u8 = 1;
 pub const SRC_TIME: u8 = 2;
@@ -490,6 +492,22 @@ pub const CLASSES: &[ClassDef] = &[
         class: EXTENSION,
         role: 0,
         words: &[("extension", 0)],
+    },
+    ClassDef {
+        class: LABEL,
+        role: 0,
+        words: &[
+            ("chapter", 0),
+            ("episode", 0),
+            ("level", 0),
+            ("page", 0),
+            ("part", 0),
+            ("phase", 0),
+            ("season", 0),
+            ("step", 0),
+            ("track", 0),
+            ("version", 0),
+        ],
     },
     ClassDef {
         class: THE,

@@ -557,7 +557,14 @@ fn windows_scaled_into(
                 cut -= 1;
             }
             if cut > start {
-                end = cut;
+                // Start the next window on the word before the run, so the run
+                // keeps its left context ("room", "at"), unless that word is the
+                // right context of a number ending this window.
+                end = if cut - 1 > start && !numeric(cut - 2) {
+                    cut - 1
+                } else {
+                    cut
+                };
             }
         }
         out.push(Window {
@@ -607,8 +614,16 @@ mod tests {
     }
 
     #[test]
-    fn cut_moves_before_a_number_that_crosses_the_limit() {
+    fn cut_moves_before_the_word_ahead_of_a_number_that_crosses_the_limit() {
         let mut numeric = [false; 10];
+        numeric[6..9].fill(true);
+        assert_eq!(split(&numeric), vec![fmt(0, 5), fmt(5, 10)]);
+    }
+
+    #[test]
+    fn cut_keeps_the_word_after_an_earlier_number_in_its_window() {
+        let mut numeric = [false; 10];
+        numeric[4] = true;
         numeric[6..9].fill(true);
         assert_eq!(split(&numeric), vec![fmt(0, 6), fmt(6, 10)]);
     }

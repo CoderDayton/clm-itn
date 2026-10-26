@@ -207,7 +207,7 @@ fn single_digits_style_writes_lone_numbers_as_digits_and_keeps_ordinals() {
         ("like eight years", "like eight years", "like 8 years"),
         (
             "track two and track three",
-            "track two and track three",
+            "track 2 and track 3",
             "track 2 and track 3",
         ),
         (
@@ -235,6 +235,49 @@ fn single_digits_style_writes_lone_numbers_as_digits_and_keeps_ordinals() {
             format_line(e, input, &mut got);
             assert_eq!(got, want, "{input:?}");
         }
+    }
+}
+
+#[test]
+fn a_label_word_writes_the_next_number_as_digits() {
+    let engine = engine();
+    for (input, want) in [
+        ("continue to step five", "continue to step 5"),
+        ("train it on part two", "train it on part 2"),
+        ("read chapter four", "read chapter 4"),
+        ("turn to page twelve", "turn to page 12"),
+        ("season two episode three", "season 2 episode 3"),
+        ("phase one is done", "phase 1 is done"),
+        ("at level nine", "at level 9"),
+        ("install version two point one", "install version 2.1"),
+        ("for the most part", "for the most part"),
+        ("step by step", "step by step"),
+        ("the first page", "the first page"),
+    ] {
+        let mut got = String::new();
+        format_line(&engine, input, &mut got);
+        assert_eq!(got, want, "{input:?}");
+    }
+}
+
+#[test]
+fn a_window_cut_keeps_the_word_before_a_number() {
+    let engine = engine();
+    for (input, want) in [
+        ("a b c d e f at five and see", "a b c d e f at 5 and see"),
+        (
+            "a b c d e f room five and see",
+            "a b c d e f room 5 and see",
+        ),
+        (
+            "I need you to look at track two and track three and see",
+            "I need you to look at track 2 and track 3 and see",
+        ),
+        ("a b c d e five pm and see", "a b c d e 5 pm and see"),
+    ] {
+        let mut got = String::new();
+        format_line(&engine, input, &mut got);
+        assert_eq!(got, want, "{input:?}");
     }
 }
 
