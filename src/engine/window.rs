@@ -1090,12 +1090,10 @@ fn is_break(c: char) -> bool {
 
 /// Words a long line is formatted in at a time, so its word list stays in cache.
 const BATCH_WORDS: usize = 256;
-/// Plain words a batch cut needs on each side: more than any line rule reads
-/// from a number word.
-const CUT_MARGIN: usize = 8;
-/// Plain words that end a batch: enough to hold a window start `CUT_MARGIN`
-/// words from both ends.
-const CUT_RUN: usize = 2 * CUT_MARGIN + MAX_TOKENS;
+/// Words read before a batch's first word and after its cut: more than any
+/// line rule reads from a word.
+const CUT_BEHIND: usize = 16;
+const CUT_AHEAD: usize = 16;
 
 pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
     format_line_in(engine, line, out, BATCH_WORDS);
@@ -1109,20 +1107,37 @@ pub fn format_line_in(engine: &Normalizer, line: &str, out: &mut String, batch: 
     if spaces < batch {
         return format_short(engine, line, out, spaces);
     }
-    let mut words = Vec::with_capacity(batch.saturating_add(CUT_RUN) + 3);
+    let first = batch.saturating_add(CUT_BEHIND + CUT_AHEAD);
+    let mut words = Vec::with_capacity(first.saturating_add(3));
+    let mut raw = Vec::with_capacity(first.saturating_add(3));
     let mut rest = line;
-    let (mut most, mut limit) = (0, batch);
+    let (mut most, mut limit) = (0, first);
+    // Where the words in `words` start in `rest`, where the last one ends,
+    // and the first word of this batch not yet written.
+    let (mut end_at, mut resume, mut ragged) = (0, None, false);
     loop {
-        let (end, ragged, stop) = tokenize::<true>(rest, engine.tables, &mut words, limit);
+        let (end, r, stop) = tokenize::<true>(rest, engine.tables, &mut words, end_at, limit);
+        ragged |= r;
         most = most.max(words.len());
         if let Stop::Batch = stop {
-            let (w, cut) = format_batch(engine, rest, words, ragged, out);
-            words = w;
-            words.clear();
-            match cut {
-                Some(k) => rest = &rest[k..],
-                // No cut: format the rest whole.
-                None => limit = usize::MAX,
+            let this = Batch {
+                ragged,
+                resume,
+                size: batch,
+            };
+            let step = format_batch(engine, rest, &mut words, &mut raw, this, out);
+            match step {
+                Some(next) => {
+                    rest = &rest[next.at..];
+                    end_at = end - next.at;
+                    resume = Some(next.resume);
+                    ragged = words.iter().skip(1).any(|w| w.gap != " ");
+                }
+                // No cut: read on, and try again with twice the words.
+                None => {
+                    end_at = end;
+                    limit = words.len().saturating_mul(2);
+                }
             }
             continue;
         }
@@ -1131,13 +1146,13 @@ pub fn format_line_in(engine: &Normalizer, line: &str, out: &mut String, batch: 
             _ => None,
         };
         let piece = cut.map_or(rest, |k| &rest[..k]);
-        words = format_piece(engine, piece, words, end, ragged, out);
+        words = format_piece(engine, piece, words, end, ragged, resume, out);
         let Some(k) = cut else { return most };
         let n = rest[k..].find(|c| !is_break(c)).unwrap_or(rest.len() - k);
         out.push_str(&rest[k..k + n]);
         rest = &rest[k + n..];
         words.clear();
-        limit = batch;
+        (end_at, resume, ragged, limit) = (0, None, false, first);
     }
 }
 
@@ -1147,14 +1162,14 @@ fn format_short(engine: &Normalizer, line: &str, out: &mut String, spaces: usize
     let mut rest = line;
     let mut most = 0;
     loop {
-        let (end, ragged, stop) = tokenize::<false>(rest, engine.tables, &mut words, 0);
+        let (end, ragged, stop) = tokenize::<false>(rest, engine.tables, &mut words, 0, 0);
         most = most.max(words.len());
         let cut = match stop {
             Stop::Break(k) => Some(k),
             _ => None,
         };
         let piece = cut.map_or(rest, |k| &rest[..k]);
-        words = format_piece(engine, piece, words, end, ragged, out);
+        words = format_piece(engine, piece, words, end, ragged, None, out);
         let Some(k) = cut else { return most };
         let n = rest[k..].find(|c| !is_break(c)).unwrap_or(rest.len() - k);
         out.push_str(&rest[k..k + n]);
@@ -1168,7 +1183,7 @@ enum Stop {
     End,
     /// A tab or line break at this byte.
     Break(usize),
-    /// At least the asked words, ending in `CUT_RUN` plain words.
+    /// The asked number of words.
     Batch,
 }
 
@@ -1183,19 +1198,20 @@ fn anchor(w: &Word) -> bool {
         || ["am", "pm", "m"].iter().any(|m| is(w, m))
 }
 
-/// Splits `line` into words up to its first tab or line break, each with the
-/// whitespace before it. `BATCHED` stops early once `batch` words end in a
-/// plain run. Returns the end of the last word, whether any gap between words
-/// is other than one space, and why it stopped.
+/// Reads words from `line` after byte `from` up to its first tab or line
+/// break, each with the whitespace before it. `BATCHED` stops early once
+/// `words` holds `limit` words. Returns the end of the last word, whether any
+/// gap read is other than one space, and why it stopped.
 fn tokenize<'a, const BATCHED: bool>(
     line: &'a str,
     t: &Tables,
     words: &mut Vec<Word<'a>>,
-    batch: usize,
+    from: usize,
+    limit: usize,
 ) -> (usize, bool, Stop) {
     let base = line.as_ptr().addr();
-    let (mut end, mut ragged, mut plain) = (0, false, 0);
-    for tok in line.split_whitespace() {
+    let (mut end, mut ragged) = (from, false);
+    for tok in line[from..].split_whitespace() {
         let at = tok.as_ptr().addr() - base;
         let gap = &line[end..at];
         let usual = gap.len() == usize::from(end != 0) && (end == 0 || gap.as_bytes()[0] == b' ');
@@ -1208,19 +1224,11 @@ fn tokenize<'a, const BATCHED: bool>(
         let mut w = split_word(tok, t);
         w.gap = gap;
         end = at + tok.len();
-        let split = hyphenated(&w, t);
-        if BATCHED && words.len() >= batch {
-            plain = if split.is_some() || anchor(&w) {
-                0
-            } else {
-                plain + 1
-            };
-        }
-        match split {
+        match hyphenated(&w, t) {
             Some((a, b)) => words.extend([a, b]),
             None => words.push(w),
         }
-        if BATCHED && plain >= CUT_RUN {
+        if BATCHED && words.len() >= limit {
             return (end, ragged, Stop::Batch);
         }
     }
@@ -1231,13 +1239,14 @@ fn tokenize<'a, const BATCHED: bool>(
 }
 
 /// Formats a line with no tabs or line breaks, given its words, and returns
-/// the word list for reuse.
+/// the word list for reuse. Words before `resume` are already written.
 fn format_piece<'a>(
     engine: &Normalizer,
     line: &'a str,
     words: Vec<Word<'a>>,
     end: usize,
     ragged: bool,
+    resume: Option<usize>,
     out: &mut String,
 ) -> Vec<Word<'a>> {
     let begin = out.len();
@@ -1246,28 +1255,90 @@ fn format_piece<'a>(
         return words;
     }
     let (words, f, piece) = prepare(engine, line, words, ragged);
-    emit(engine, &words, words.len(), f, piece, begin, out);
+    let from = resume.map_or(0, |at| resume_at(line, &words, at));
+    emit(engine, &words, from..words.len(), f, piece, begin, out);
     out.push_str(&line[end..]);
     words
 }
 
-/// Formats a batch from `tokenize` up to its cut. Returns the word list and
-/// the byte of `line` the rest starts at, or no cut and nothing written.
+/// The first prepared word at or after address `at` in `line`.
+fn resume_at(line: &str, words: &[Word], at: usize) -> usize {
+    let (lo, hi) = (line.as_ptr().addr(), line.as_ptr().addr() + line.len());
+    let inside = |w: &Word| (lo..=hi).contains(&w.gap.as_ptr().addr());
+    words
+        .iter()
+        .position(|w| inside(w) && w.gap.as_ptr().addr() >= at)
+        .unwrap_or(words.len())
+}
+
+/// Where the next batch of a long line starts.
+struct Next {
+    /// The byte of the line where its first word, read only for context, starts.
+    at: usize,
+    /// The address of the first word it writes.
+    resume: usize,
+}
+
+/// Whether a word's gap lies in `line`; a word a rewrite made has none.
+fn in_line(line: &str, w: &Word) -> bool {
+    let (lo, at) = (line.as_ptr().addr(), w.gap.as_ptr().addr());
+    (lo..=lo + line.len()).contains(&at)
+}
+
+/// What `format_batch` is told about a batch.
+#[derive(Clone, Copy)]
+struct Batch {
+    /// Some gap between its words is not one space.
+    ragged: bool,
+    /// The address of the first word not yet written.
+    resume: Option<usize>,
+    /// The words it writes at least.
+    size: usize,
+}
+
+/// Writes a batch of `words` up to its cut and leaves in `words` the tail the
+/// next batch starts with, or writes nothing and leaves them all when there
+/// is no cut. `raw` is scratch.
+#[inline(never)]
 fn format_batch<'a>(
     engine: &Normalizer,
     line: &'a str,
-    words: Vec<Word<'a>>,
-    ragged: bool,
+    words: &mut Vec<Word<'a>>,
+    raw: &mut Vec<Word<'a>>,
+    Batch {
+        ragged,
+        resume,
+        size,
+    }: Batch,
     out: &mut String,
-) -> (Vec<Word<'a>>, Option<usize>) {
+) -> Option<Next> {
     let begin = out.len();
-    let (words, f, piece) = prepare(engine, line, words, ragged);
-    let Some(c) = batch_cut(engine.tables, &words, piece) else {
-        return (words, None);
+    raw.clear();
+    raw.extend_from_slice(words);
+    let (mut prepared, f, piece) = prepare(engine, line, core::mem::take(words), ragged);
+    let skip = resume.map_or(0, |at| resume_at(line, &prepared, at));
+    let least = skip + (size / 2).max(1);
+    let found = batch_cut(engine.tables, &prepared, piece, skip, least).and_then(|c| {
+        let at = prepared[c].gap.as_ptr().addr();
+        let r = raw.iter().rposition(|w| w.gap.as_ptr().addr() == at)?;
+        Some((c, at, r))
+    });
+    let Some((c, resume, r)) = found else {
+        prepared.clear();
+        prepared.extend_from_slice(raw);
+        *words = prepared;
+        return None;
     };
-    emit(engine, &words, c, f, piece, begin, out);
-    let at = words[c].gap.as_ptr().addr() - line.as_ptr().addr();
-    (words, Some(at))
+    emit(engine, &prepared, skip..c, f, piece, begin, out);
+    let mut behind = r.saturating_sub(CUT_BEHIND);
+    while behind > 0 && !in_line(line, &raw[behind]) {
+        behind -= 1;
+    }
+    let at = raw[behind].gap.as_ptr().addr() - line.as_ptr().addr();
+    prepared.clear();
+    prepared.extend_from_slice(&raw[behind..]);
+    *words = prepared;
+    Some(Next { at, resume })
 }
 
 /// Whether a segment ends after `words[i]`, which is not the last word.
@@ -1278,33 +1349,59 @@ fn ends_segment(words: &[Word], i: usize) -> bool {
         || words[i].cut()
 }
 
-/// The latest window start in a batch's plain tail with `CUT_MARGIN` plain
-/// words on each side. No line rule reads that far from an anchor, and the
-/// next batch plans its windows from the same start, so both sides format as
-/// in the whole line. A segment cut in two keeps at least two words a side,
-/// since a one-word segment formats differently.
-fn batch_cut(t: &Tables, words: &[Word], piece: Piece) -> Option<usize> {
+/// Whether a batch can end before `words[c]`. Runs of number words, fillers
+/// and digits are the only chains of rules that reach past `CUT_BEHIND`
+/// words, and `c` is none of them. It is not a letter or "dot", which the
+/// output joins to a neighbor. Inside a segment, no "hundred" is near, since
+/// the comma of "1,900" depends on what ends its segment.
+fn seam_ok(words: &[Word], c: usize, boundary: bool) -> bool {
+    let w = &words[c];
+    !anchor(w)
+        && !matches!(w.kind, K_A | K_LETTER | K_DOT)
+        && !w.gap.is_empty()
+        && (boundary
+            || !words[c.saturating_sub(5)..c]
+                .iter()
+                .any(|w| w.kind == K_HUNDRED))
+}
+
+/// The latest word in `least..=n - CUT_AHEAD` a batch of `words` can end
+/// before. It starts a window, so the next batch plans its windows from the
+/// same start, and the words on both sides of it read as in the whole line.
+/// A segment cut in two keeps at least two words a side, since a one-word
+/// segment formats differently.
+fn batch_cut(t: &Tables, words: &[Word], piece: Piece, skip: usize, least: usize) -> Option<usize> {
     let n = words.len();
-    let lo = n.checked_sub(CUT_RUN)? + CUT_MARGIN;
-    if words[lo - CUT_MARGIN..].iter().any(anchor) {
+    let most = n.checked_sub(CUT_AHEAD)?;
+    if most < least {
         return None;
     }
     let mut windows = WindowBuf::new();
     let mut e = n;
-    while e > 0 {
+    while e > skip {
         let mut s = e - 1;
-        while s > 0 && !ends_segment(words, s - 1) {
+        while s > skip && !ends_segment(words, s - 1) {
             s -= 1;
         }
-        plan(t, piece, &words[s..e], &mut windows);
-        let found = windows
-            .as_slice()
-            .iter()
-            .rev()
-            .map(|w| s + w.start)
-            .find(|&c| c >= lo && c + CUT_MARGIN <= n && (c == s || (c - s >= 2 && c + 1 < e)));
-        if found.is_some() || s <= lo {
-            return found;
+        if s <= most {
+            plan(t, piece, &words[s..e], &mut windows);
+            let found = windows
+                .as_slice()
+                .iter()
+                .rev()
+                .filter(|w| !w.join)
+                .map(|w| s + w.start)
+                .find(|&c| {
+                    (least..=most).contains(&c)
+                        && (c == s || (c - s >= 2 && c + 1 < e))
+                        && seam_ok(words, c, c == s)
+                });
+            if found.is_some() {
+                return found;
+            }
+        }
+        if s <= least {
+            return None;
         }
         e = s;
     }
@@ -1361,26 +1458,25 @@ fn prepare<'a>(
     (words, f, piece)
 }
 
-/// Writes the first `n` of a line's prepared words, which started at `begin`
-/// in `out`.
+/// Writes the prepared words `from..to` of a line, which started at `begin`
+/// in `out`. A segment starts at `from` and ends at `to`.
 #[inline(always)]
 fn emit(
     engine: &Normalizer,
-    words: &[Word],
-    n: usize,
+    all: &[Word],
+    span: core::ops::Range<usize>,
     f: u8,
     piece: Piece,
     begin: usize,
     out: &mut String,
 ) {
-    // Rules past a cut read only plain words, which act as no word.
-    let words = &words[..n];
+    let words = &all[..span.end];
     let mut scratch = Scratch {
         windows: WindowBuf::new(),
         buf: [0u8; LINE_OUT],
     };
-    let mut start = 0;
-    for i in 0..words.len() {
+    let mut start = span.start;
+    for i in span.start..words.len() {
         let last = i + 1 == words.len() || ends_segment(words, i);
         if !last {
             continue;
@@ -1393,7 +1489,7 @@ fn emit(
         out.push_str(words[start].lead);
         let body = out.len();
         let segment = &words[start..=i];
-        if words[i].keep() || (start == i && counting_list(words, i)) {
+        if words[i].keep() || (start == i && counting_list(all, i)) {
             push_raw(out, segment);
         } else {
             format_segment(
@@ -1404,7 +1500,7 @@ fn emit(
                 out,
                 &mut scratch,
             );
-            if bare_hundreds(segment, words.get(i + 1)) {
+            if bare_hundreds(segment, all.get(i + 1)) {
                 ungroup_last(out, body);
             }
         }
@@ -1700,10 +1796,32 @@ fn hyphenated<'a>(w: &Word<'a>, t: &Tables) -> Option<(Word<'a>, Word<'a>)> {
     if w.numeric() || w.core.len() < 7 {
         return None;
     }
-    let (a, b) = w.core.split_once('-')?;
-    let (a, b) = (tag(t, w.lead, a, ""), tag(t, "", b, w.trail));
+    // An unknown word keeps its punctuation in `core`: "(twenty-one)," splits
+    // into the lead, "twenty-one" and the trail.
+    let body = w.core;
+    let from = if w.lead.is_empty() {
+        body.len() - body.trim_start_matches(lead_punct).len()
+    } else {
+        0
+    };
+    let to = if w.trail.is_empty() {
+        body.trim_end_matches(trail_punct).len().max(from)
+    } else {
+        body.len()
+    };
+    let (lead, inner, trail) = (
+        if from > 0 { &body[..from] } else { w.lead },
+        &body[from..to],
+        if w.trail.is_empty() {
+            &body[to..]
+        } else {
+            w.trail
+        },
+    );
+    let (a, b) = inner.split_once('-')?;
+    let (a, b) = (tag(t, lead, a, ""), tag(t, "", b, trail));
     let a = Word {
-        said: w.core,
+        said: inner,
         gap: w.gap,
         ..a
     };
@@ -2282,6 +2400,35 @@ mod tests {
             let most = format_line_in(&engine, &line, &mut out, batch);
             assert_eq!(out, whole, "batch {batch}");
             assert!(most <= batch + 150, "batch {batch}: {most} words at once");
+        }
+    }
+
+    #[test]
+    fn hyphenated_numbers_read_before_punctuation() {
+        let engine = Normalizer::english();
+        for (said, want) in [
+            ("She is twenty-one.", "She is 21."),
+            ("twenty-one, twenty-two, twenty-three", "21, 22, 23"),
+            ("(twenty-one) dogs", "(21) dogs"),
+            ("count to twenty-one, then thirty", "count to 21, then 30"),
+            ("ninety-nine?", "99?"),
+        ] {
+            assert_eq!(engine.normalize(said), want, "{said}");
+        }
+    }
+
+    #[test]
+    fn dense_long_lines_format_in_bounded_batches_with_the_same_output() {
+        let engine = Normalizer::english();
+        let dense = "we paid twenty five dollars, then thirty people came at five thirty pm. it was one hundred and twenty degrees on May third, so room four oh two filled by six and the other one left at ten to four.";
+        let line = [dense].repeat(60).join(" ");
+        let mut whole = String::new();
+        format_line_in(&engine, &line, &mut whole, usize::MAX);
+        for batch in [16, 64, 300] {
+            let mut out = String::new();
+            let most = format_line_in(&engine, &line, &mut out, batch);
+            assert_eq!(out, whole, "batch {batch}");
+            assert!(most <= batch + 80, "batch {batch}: {most} words at once");
         }
     }
 

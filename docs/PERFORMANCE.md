@@ -1,6 +1,6 @@
 # Performance
 
-Measured latency and allocation counts for `Normalizer::normalize`, how they were taken, what a call costs, and what cannot be improved.
+Measured latency, memory and allocation counts for `Normalizer::normalize`, how they were taken, what a call costs, and what cannot be improved.
 
 - [Verdict](#verdict)
 - [How the numbers were taken](#how-the-numbers-were-taken)
@@ -91,21 +91,34 @@ Load average was 2.6–2.7. The call allocates 3 times with a reused `String` an
 
 | Words     | One line, ns/word | One per line, ns/word |
 | --------- | ----------------- | --------------------- |
-| 304       | 49.3–51.1         | 47.0–49.7             |
-| 2,642     | 80.0–82.6         | 70.6–70.7             |
-| 23,399    | 83.7–84.1         | 75.6–75.9             |
-| 84,588    | 83.3–83.5         | 76.1–76.2             |
-| 1,015,056 | 84.6–84.8         | 77.0–77.3             |
+| 304       | 49.4–50.2         | 46.3                  |
+| 2,642     | 75.5–76.4         | 65.5–65.9             |
+| 23,399    | 77.9–80.8         | 71.3–72.0             |
+| 84,588    | 78.8–79.0         | 71.3–72.1             |
+| 1,015,056 | 79.0–79.2         | 71.9–72.3             |
 
-The 168-word paragraph repeated 6,000 times (1,008,000 words) as one line runs at 145.9–146.0 ns per word. It has no stretch of 24 words without a number word, so it is formatted in one pass (see [Limits](#limits)). The same text one paragraph per line runs at 76.9–77.3 ns per word.
+The 168-word paragraph repeated 6,000 times (1,008,000 words) as one line runs at 78.5–85.6 ns per word over 6 runs (load average 3.5–9). One call over the paragraph once runs at 74.3–77.4 ns per word.
 
 Putting several lines in one call saves nothing: the transcripts cost 78.3–78.5 ns per word at one call per line and 76.9–79.0 ns per word at 10, 100 or 1,000 lines per call joined with `\n`.
+
+### Memory
+
+Peak memory of one `normalize_into` call, with `out` reserved before the call so the output is not counted. RSS is `VmHWM` after the call minus `VmRSS` before it, with the high-water mark reset (`/proc/self/clear_refs`) just before the call, one call per process, Linux and glibc. Heap is the peak of live bytes above the start of the call, from a counting global allocator. Sparse is the Whisper transcripts joined into one line; dense is the 168-word paragraph repeated as one line; per line is the same paragraph one per line. Each figure is one call.
+
+| Words      | Sparse, RSS | Dense, RSS | Per line, RSS | Sparse, heap | Dense, heap | Per line, heap |
+| ---------- | ----------- | ---------- | ------------- | ------------ | ----------- | -------------- |
+| 10,000     | 0.63 MiB    | 0.63 MiB   | 0.61 MiB      | 76,736 B     | 76,736 B    | 66,176 B       |
+| 100,000    | 0.70 MiB    | 0.73 MiB   | 0.65 MiB      | 76,736 B     | 76,736 B    | 66,176 B       |
+| 1,000,000  | 0.68 MiB    | 0.62 MiB   | 0.65 MiB      | 76,736 B     | 76,736 B    | 66,176 B       |
+| 10,000,000 | 0.71 MiB    | 0.78 MiB   | 0.69 MiB      | 76,736 B     | 76,736 B    | 66,176 B       |
+
+Memory does not grow with the line. A line of only number words, such as "one, two, three, four, five," repeated to 800,000 words, has no place to cut and takes 137 MiB of RSS, about 180 bytes per word (2.3 MiB at 8,000 words, 15.6 MiB at 80,000). Without a reserved `out`, growing the output adds 1 to 2.4 times the output size at the peak; the output is about the size of the input, 5.3 MB per 10⁶ words.
 
 ## Cost model
 
 `normalize` reads the line into a word list, looking each word up in the lexicon once. It then applies the line rules: joins, word sense, run guards and relative times. Next it plans windows of at most 8 words and runs the table engine with the lookups it already has on each window that holds a number word; other windows print as written. The table engine does a fixed amount of work per window: no loops over table contents, no sorting, no allocation.
 
-A line of 256 words or more is formatted in batches, so its word list stays in cache. A batch ends once it has at least 256 words and its last 24 words hold no number word, digit, filler, `am`, `pm`, `m`, `may` or `march`. It is cut at a window start with at least 8 such words on each side. No line rule reads more than 5 words from those words, and the next batch plans its windows from the same start, so the output is the same as one pass over the line.
+A line of 256 words or more is formatted in batches, so its word list stays in cache and its memory does not grow with the line. A batch reads at least 256 words plus 16 past its cut, and starts with the 16 words before its first written word. It is cut before a word that starts a window and is not a number word, digit, filler, single letter, `dot`, `am`, `pm`, `m`, `may` or `march`. A cut inside a segment leaves at least 2 words on each side and has no `hundred` among the 5 words before it. The only chains of line rules longer than 16 words are runs of number words, fillers and digits, and the cut word is none of them, so the output is the same as one pass over the line. With 2 words of margin instead of 16, 44 of 28,436 batched runs on the random-word corpus differ from one pass; with 4 or more, none do.
 
 | Step              | Work                                                                                              | Table                                                | Size             |
 | ----------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ---------------- |
@@ -123,7 +136,7 @@ The lexicon build starts at the fewest buckets, a power of two, that keep it at 
 
 - **The gate uses a generated corpus:** no production logs ship with the repository, so the gate replays generated utterances of up to 8 tokens. `--corpus` scores and times your own logs, but only reports.
 - **Long lines can exceed 1 µs:** cost grows with line length and with the number of number spans. The budget covers short utterances.
-- **Dense long lines are formatted in one pass:** a line with no 24-word stretch free of number words never splits into batches, and its cost per word rises with length: 76.2–77.3 ns at 168 words to 145.9–146.0 ns at 1,008,000 words for the repeated paragraph.
+- **A line of only number words has no cut:** a spoken list or one number with no other word between its words is formatted in one pass, and its memory grows by about 180 bytes per word.
 - **One call uses one core:** `normalize` does not spread a line over threads. Lines are formatted independently, so text split at line breaks can run on several threads with the same output.
 - **Headroom:** p99 is 85% of the budget.
 - **Max is not bounded:** the slowest single call ranged from 13.5 to 20.5 µs across gate runs. This is a time-shared OS, and only p99 and allocations are gated.
