@@ -85,9 +85,27 @@ The slowest lines are long lines with several number spans or a money phrase.
 
 Load average was 2.6–2.7. The call allocates 3 times with a reused `String` and 9 times with a new one.
 
+### Long lines
+
+84,588 words of Whisper transcripts (3,645 lines, not in the repository), joined into one line with spaces, or kept one transcript per line with `\n`. The last row repeats the text 12 times. One `normalize_into` call per row, median of 5 to 200 calls, core 2, 2 runs, load average 3.0–3.5.
+
+| Words     | One line, ns/word | One per line, ns/word |
+| --------- | ----------------- | --------------------- |
+| 304       | 49.3–51.1         | 47.0–49.7             |
+| 2,642     | 80.0–82.6         | 70.6–70.7             |
+| 23,399    | 83.7–84.1         | 75.6–75.9             |
+| 84,588    | 83.3–83.5         | 76.1–76.2             |
+| 1,015,056 | 84.6–84.8         | 77.0–77.3             |
+
+The 168-word paragraph repeated 6,000 times (1,008,000 words) as one line runs at 145.9–146.0 ns per word. It has no stretch of 24 words without a number word, so it is formatted in one pass (see [Limits](#limits)). The same text one paragraph per line runs at 76.9–77.3 ns per word.
+
+Putting several lines in one call saves nothing: the transcripts cost 78.3–78.5 ns per word at one call per line and 76.9–79.0 ns per word at 10, 100 or 1,000 lines per call joined with `\n`.
+
 ## Cost model
 
-`normalize` reads the line into a word list, looking each word up in the lexicon once. It then applies the line rules: joins, word sense, run guards and relative times. Next it plans windows of at most 8 words and runs the table engine on each window with the lookups it already has. The table engine does a fixed amount of work per window: no loops over table contents, no sorting, no allocation.
+`normalize` reads the line into a word list, looking each word up in the lexicon once. It then applies the line rules: joins, word sense, run guards and relative times. Next it plans windows of at most 8 words and runs the table engine with the lookups it already has on each window that holds a number word; other windows print as written. The table engine does a fixed amount of work per window: no loops over table contents, no sorting, no allocation.
+
+A line of 256 words or more is formatted in batches, so its word list stays in cache. A batch ends once it has at least 256 words and its last 24 words hold no number word, digit, filler, `am`, `pm`, `m`, `may` or `march`. It is cut at a window start with at least 8 such words on each side. No line rule reads more than 5 words from those words, and the next batch plans its windows from the same start, so the output is the same as one pass over the line.
 
 | Step              | Work                                                                                              | Table                                                | Size             |
 | ----------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ---------------- |
@@ -105,6 +123,8 @@ The lexicon build starts at the fewest buckets, a power of two, that keep it at 
 
 - **The gate uses a generated corpus:** no production logs ship with the repository, so the gate replays generated utterances of up to 8 tokens. `--corpus` scores and times your own logs, but only reports.
 - **Long lines can exceed 1 µs:** cost grows with line length and with the number of number spans. The budget covers short utterances.
+- **Dense long lines are formatted in one pass:** a line with no 24-word stretch free of number words never splits into batches, and its cost per word rises with length: 76.2–77.3 ns at 168 words to 145.9–146.0 ns at 1,008,000 words for the repeated paragraph.
+- **One call uses one core:** `normalize` does not spread a line over threads. Lines are formatted independently, so text split at line breaks can run on several threads with the same output.
 - **Headroom:** p99 is 85% of the budget.
 - **Max is not bounded:** the slowest single call ranged from 13.5 to 20.5 µs across gate runs. This is a time-shared OS, and only p99 and allocations are gated.
 - **AArch64 has never run:** the NEON lookup and the `cntvct_el0` timer compile and pass clippy, but no ARM hardware has run them. On cores before Armv8.6 (Apple M1: 24 MHz, about 42 ns per tick), the counter fails the resolution gate, and the bench needs the PMU cycle counter with the core frequency locked.
