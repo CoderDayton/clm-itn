@@ -722,6 +722,12 @@ fn features(words: &[Word]) -> u8 {
             K_LETTER if number(prev) || number(next) => F_LETTERS,
             K_OF if prev.is_some_and(|p| p.ordinal()) => F_CUTS,
             K_PER | K_DOUBLE => F_EXPAND,
+            K_HUNDRED
+                if prev.is_some_and(|p| is(p, "twenty"))
+                    && next.is_some_and(|n| is(n, "hours")) =>
+            {
+                F_EXPAND
+            }
             K_DOT => F_DOTS,
             K_HUNDRED if digit(prev) && digit(next) => F_PHONE,
             K_STREET if prev.is_some_and(|p| p.value()) || k >= 2 && words[k - 2].value() => F_CUTS,
@@ -800,6 +806,14 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
                 });
                 i += 2;
             }
+            Some(n)
+                if is(&w, "twenty")
+                    && is(&n, "hundred")
+                    && after.is_some_and(|a| is(&a, "hours")) =>
+            {
+                push_two_thousand(&mut out, t, &w, &n);
+                i += 2;
+            }
             Some(n) if n.digit() && (is(&w, "double") || is(&w, "triple")) => {
                 let copies = if is(&w, "double") { 1 } else { 2 };
                 for k in 0..copies {
@@ -855,6 +869,25 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
         }
     }
     out
+}
+
+/// "twenty hundred" on the 24-hour clock is 2000: reads as "two thousand".
+fn push_two_thousand<'a>(
+    out: &mut Vec<Word<'a>>,
+    t: &Tables,
+    twenty: &Word<'a>,
+    hundred: &Word<'a>,
+) {
+    out.push(Word {
+        said: twenty.core,
+        gap: twenty.gap,
+        ..tag(t, twenty.lead, "two", "")
+    });
+    out.push(Word {
+        said: hundred.core,
+        gap: hundred.gap,
+        ..tag(t, "", "thousand", hundred.trail)
+    });
 }
 
 const MIN_PHONE_DIGITS: usize = 7;
@@ -988,9 +1021,15 @@ fn bare_hundreds(segment: &[Word], next: Option<&Word>) -> bool {
     let tail_ok = tail.is_empty()
         || (tail.len() >= 2 && is(&tail[0], "and") && tail[1..].iter().all(|w| w.value()));
     let x = h.checked_sub(1).map(|k| &segment[k]);
-    let lead = h >= 2 && segment[h - 2].value();
+    // "twenty one hundred" is 2100 on the 24-hour clock, but any other tens
+    // word before a digit is a larger count.
+    let clock = h >= 2
+        && is(&segment[h - 2], "twenty")
+        && matches!(bare(segment[h - 1].core), "one" | "two" | "three")
+        && !(h >= 3 && segment[h - 3].value());
+    let lead = h >= 2 && segment[h - 2].value() && !clock;
     tail_ok
-        && x.is_some_and(|x| x.value() && !x.digit())
+        && x.is_some_and(|x| x.value() && (!x.digit() || clock))
         && !lead
         && (!last.trail.is_empty() || next.is_none_or(|n| is(n, "hours")))
 }
@@ -2400,6 +2439,68 @@ mod tests {
             let most = format_line_in(&engine, &line, &mut out, batch);
             assert_eq!(out, whole, "batch {batch}");
             assert!(most <= batch + 150, "batch {batch}: {most} words at once");
+        }
+    }
+
+    fn check(cases: &[(&str, &str)]) {
+        let engine = Normalizer::english();
+        for (said, want) in cases {
+            assert_eq!(engine.normalize(said), *want, "{said}");
+        }
+    }
+
+    #[test]
+    fn military_hundreds_keep_their_zeros() {
+        check(&[
+            ("oh eight hundred hours", "0800 hours"),
+            ("zero six hundred", "0600"),
+            ("meet at oh nine hundred", "meet at 0900"),
+            ("twenty one hundred hours", "2100 hours"),
+            ("twenty hundred hours", "2000 hours"),
+            ("twenty three hundred", "2300"),
+            ("sixteen hundred hours", "1600 hours"),
+            ("twenty one hundred people", "2,100 people"),
+        ]);
+    }
+
+    #[test]
+    fn twenty_four_hour_times_read_as_clock_times() {
+        check(&[
+            ("oh seven thirty", "07:30"),
+            ("oh seven fifteen hours", "07:15 hours"),
+            ("at oh seven thirty", "at 07:30"),
+            ("oh nine oh five", "09:05"),
+            ("at twenty three forty five", "at 23:45"),
+            ("twenty three forty five hours", "23:45 hours"),
+            ("fifteen thirty hours", "15:30 hours"),
+            ("at twenty two oh five", "at 22:05"),
+        ]);
+    }
+
+    #[test]
+    fn twenty_four_hour_forms_leave_other_readings_alone() {
+        check(&[
+            ("twenty twenty", "2020"),
+            ("in twenty twenty five", "in 2025"),
+            ("twenty five hours", "25 hours"),
+            ("three hours", "3 hours"),
+            ("it took twenty three hours", "it took 23 hours"),
+        ]);
+    }
+
+    #[test]
+    fn ordinals_after_hundreds_take_an_and() {
+        let engine = Normalizer::english();
+        for (said, want) in [
+            ("one hundred and first", "101st"),
+            ("two hundred and third", "203rd"),
+            ("one hundred and twenty first", "121st"),
+            ("a hundred and second", "102nd"),
+            ("the one hundred and fifth place", "the 105th place"),
+            ("one thousand and first", "1,001st"),
+            ("one thousand one hundred and first", "1,101st"),
+        ] {
+            assert_eq!(engine.normalize(said), want, "{said}");
         }
     }
 

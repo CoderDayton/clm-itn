@@ -52,6 +52,9 @@ pub struct Tables {
     pub per_stop: Aligned<[u64; 4]>,
     pub per_units: Aligned<[u64; 4]>,
     pub pair_only: Aligned<[u64; 4]>,
+    /// Classes after which a lone number word keeps its place as a word even
+    /// though they cue a time ("six hours").
+    pub lone_after: Aligned<[u64; 4]>,
     /// The settings a word class belongs to. A token whose class has a
     /// switched-off setting is read as an unknown word and kept as spoken.
     pub class_settings: Aligned<[SettingBits; 256]>,
@@ -98,6 +101,7 @@ impl Tables {
         per_stop: Aligned([0; 4]),
         per_units: Aligned([0; 4]),
         pair_only: Aligned([0; 4]),
+        lone_after: Aligned([0; 4]),
         class_settings: Aligned([0; 256]),
         domain_settings: Aligned([0; DOMAIN_COUNT]),
         suffix_roles: 0,
@@ -151,6 +155,7 @@ mod tests {
             offset_of!(Tables, per_stop),
             offset_of!(Tables, per_units),
             offset_of!(Tables, pair_only),
+            offset_of!(Tables, lone_after),
             offset_of!(Tables, class_settings),
             offset_of!(Tables, domain_settings),
         ];

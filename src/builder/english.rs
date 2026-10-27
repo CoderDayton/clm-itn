@@ -53,6 +53,8 @@ pub const WAS: ClassId = 42;
 /// time after it is no time: "it was one ninety nine" stays words, where "at
 /// nine sixty nine" is `9:69`.
 pub const SOFT_AT: ClassId = 43;
+/// "hours" after a clock reading: "fifteen thirty hours" is 24-hour time.
+pub const HOURS: ClassId = 44;
 pub const LEFT_FOLDS: [[ClassId; 3]; 2] = [[IT, IS, SOFT_AT], [IT, WAS, SOFT_AT]];
 /// Classes whose context entries are copies of another class's.
 pub const ALIASES: [(ClassId, ClassId); 4] = [
@@ -86,7 +88,7 @@ pub use crate::types::{
     ROLE_MSCALE, ROLE_OH, ROLE_ORDINAL, ROLE_POINT, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, ROLE_UNIT,
 };
 
-pub const TIME_RIGHT: [ClassId; 3] = [AM, PM, OCLOCK];
+pub const TIME_RIGHT: [ClassId; 4] = [AM, PM, OCLOCK, HOURS];
 pub const TIME_LEFT: ClassId = AT;
 pub const IDENTIFIER_LEFT: [ClassId; 7] = [NUMBER, ROOM, FLIGHT, CODE, PIN, EXTENSION, LABEL];
 
@@ -478,6 +480,11 @@ pub const CLASSES: &[ClassDef] = &[
         class: OCLOCK,
         role: ROLE_MER,
         words: &[("o'clock", 0), ("oclock", 0)],
+    },
+    ClassDef {
+        class: HOURS,
+        role: 0,
+        words: &[("hours", 0)],
     },
     ClassDef {
         class: LETTER_PM,
@@ -1009,15 +1016,23 @@ fn ordinals(s: &mut Sink) {
         let r = s.rand();
         let n = if r.is_multiple_of(50) { 0 } else { s.number(5) };
         if let Some(words) = ordinal(n) {
-            s.push(words, SRC_CARDINAL, w, "ordinal");
+            let mut and = cardinal(n, true);
+            let spoken = ordinalize(&mut and, (n % 100) as usize).is_some() && and != words;
+            let share = if spoken { AND_SHARE } else { 0.0 };
+            s.push(words, SRC_CARDINAL, w * (1.0 - share), "ordinal");
+            if spoken {
+                s.push(and, SRC_CARDINAL, w * share, "ordinal");
+            }
         }
     }
     let hundreds = hundreds_values();
     let w = 0.2 / hundreds.len() as f64;
     for &n in &hundreds {
-        let mut words = hundreds_style(n, false);
-        if ordinalize(&mut words, (n % 100) as usize).is_some() {
-            s.push(words, SRC_CARDINAL, w, "ordinal");
+        for (and, share) in [(false, 1.0 - AND_SHARE), (true, AND_SHARE)] {
+            let mut words = hundreds_style(n, and);
+            if ordinalize(&mut words, (n % 100) as usize).is_some() {
+                s.push(words, SRC_CARDINAL, w * share, "ordinal");
+            }
         }
     }
 }
@@ -1048,6 +1063,39 @@ fn times(s: &mut Sink) {
             );
             words.extend(["p", "m"]);
             s.push(words, SRC_TIME, w * 0.4, "time");
+        }
+    }
+}
+
+/// 24-hour times: "fifteen thirty", "oh seven thirty", "oh eight hundred".
+fn military(s: &mut Sink) {
+    let w = 1.0 / (24.0 * 60.0);
+    for hour in 13..=23 {
+        for minute in 1..60 {
+            // "twenty thirty" reads as a year, and "forty thirty" would share its shape.
+            if hour == 20 && minute >= 10 {
+                continue;
+            }
+            s.push(time(hour, minute), SRC_TIME, w * 0.5, "time");
+        }
+    }
+    for hour in 1..=9 {
+        for minute in 1..60 {
+            let mut words = vec!["oh", UNITS[hour as usize]];
+            if minute < 10 {
+                words.extend(["oh", UNITS[minute as usize]]);
+            } else {
+                under_1000(minute, &mut words);
+            }
+            s.push(words, SRC_TIME, w * 0.5, "time");
+        }
+        for zero in ["oh", "zero"] {
+            s.push(
+                vec![zero, UNITS[hour as usize], "hundred"],
+                SRC_CARDINAL,
+                w * 20.0,
+                "time",
+            );
         }
     }
 }
@@ -1395,6 +1443,7 @@ pub fn examples() -> Vec<Example> {
     percents(&mut s);
     measures(&mut s);
     times(&mut s);
+    military(&mut s);
     identifiers(&mut s);
     coverage(&mut s);
     s.out

@@ -75,6 +75,7 @@ pub fn to_rust(t: &Tables, name: &str) -> String {
         ("per_stop", &t.per_stop),
         ("per_units", &t.per_units),
         ("pair_only", &t.pair_only),
+        ("lone_after", &t.lone_after),
     ] {
         let _ = writeln!(
             s,

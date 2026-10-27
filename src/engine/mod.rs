@@ -485,6 +485,8 @@ impl<'t> Normalizer<'t> {
         }
         let (domain, confidence) = t.context.lookup(span.left, span.right);
         let abstain = abstains(confidence);
+        let r = span.right as usize;
+        let lone_after = (t.lone_after.0[(r >> 6) & 3] >> (r & 63)) & 1 == 1;
         let info = infos[span.start as usize % MAX_TOKENS];
         let c = info.canonical as usize;
         let marked = (t.words_first[(c >> 6) % WORDS_FIRST_WORDS] >> (c & 63)) & 1 == 1;
@@ -493,10 +495,9 @@ impl<'t> Normalizer<'t> {
         let base = abstain
             | (domain == DOMAIN_CARDINAL)
             | (domain == DOMAIN_ORDINAL)
-            | ((domain == DOMAIN_TIME) & any_domain)
+            | ((domain == DOMAIN_TIME) & (any_domain | lone_after))
             | ((domain == DOMAIN_IDENTIFIER) & any_domain);
         let inside = (span.left != CLASS_BOUNDARY) | (span.right != CLASS_BOUNDARY);
-        let r = span.right as usize;
         let before_month = (t.starts.0[(r >> 6) & 3] >> (r & 63)) & 1 == 1;
         let digit_word = self.is_on(Setting::SingleDigits)
             & (span.len == 1)

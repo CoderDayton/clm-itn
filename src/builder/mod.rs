@@ -421,6 +421,7 @@ pub fn build(learned: &Learned) -> Result<Built, BuildError> {
     mark(&mut t.per_stop, &[english::PER]);
     mark(&mut t.per_units, &english::PER_UNITS);
     mark(&mut t.pair_only, &english::PAIR_ONLY);
+    mark(&mut t.lone_after, &[english::HOURS]);
     mark_settings(&mut t);
     let (keys, lists, affix_cells, affix_dropped) =
         fill_cells(&mut t, &mut pool, &ranked, learned)?;
@@ -741,6 +742,7 @@ struct Pool {
     space: u8,
     oclock: u8,
     on_the_hour: u8,
+    hundred_hours: u8,
     zero_dot: u8,
     comma: u8,
     may: u8,
@@ -754,6 +756,7 @@ impl Pool {
         let (colon, dot, space) = (lit(b":")?, lit(b".")?, lit(b" ")?);
         let oclock = lit(b" o'clock")?;
         let on_the_hour = lit(b":00")?;
+        let hundred_hours = lit(b"00")?;
         let zero_dot = lit(b"0.")?;
         let (comma, may) = (lit(b", ")?, lit(b"May ")?);
         let mut by_text: HashMap<&str, u8> = HashMap::new();
@@ -781,6 +784,7 @@ impl Pool {
             space,
             oclock,
             on_the_hour,
+            hundred_hours,
             zero_dot,
             comma,
             may,
@@ -889,8 +893,22 @@ impl Pool {
         Some(ops)
     }
 
+    /// "oh eight hundred": 24-hour time written as four digits.
+    fn hundred_hours(&self, roles: &[Role]) -> Option<Vec<u32>> {
+        use english::{ROLE_DIGIT, ROLE_HUNDRED, ROLE_OH};
+        (roles == [ROLE_OH, ROLE_DIGIT, ROLE_HUNDRED]).then(|| {
+            vec![
+                op::fold(0, 2),
+                op::fit(0, 0, MAX_HOUR),
+                op::emit(0, 2),
+                op::lit(self.hundred_hours),
+                op::skip(1),
+            ]
+        })
+    }
+
     fn reading(&self, roles: &[Role]) -> Vec<u32> {
-        if let Some(ops) = self.clock(roles, 0) {
+        if let Some(ops) = self.clock(roles, 0).or_else(|| self.hundred_hours(roles)) {
             return ops;
         }
         self.dollars_and_cents(roles)
@@ -989,7 +1007,15 @@ impl Pool {
     ) -> Result<[Vec<ProgramId>; DOMAINS], BuildError> {
         use english::{SRC_IDENTIFIER, SRC_TIME};
         let reading = self.cardinal(roles)?;
-        let card = if let Some(y) = self.year(roles)? {
+        let oh_clock = src & SRC_TIME != 0
+            && matches!(roles, [english::ROLE_OH, english::ROLE_DIGIT, rest @ ..] if minute_roles(rest));
+        let card = if oh_clock {
+            // Nothing else reads "oh seven thirty", so it needs no cue.
+            let mut c = self.time(roles)?.unwrap_or_default();
+            c.push(self.raw(roles.len())?);
+            c.extend(&reading);
+            c
+        } else if let Some(y) = self.year(roles)? {
             let mut c = vec![y];
             if src & SRC_TIME != 0 {
                 c.push(self.raw(roles.len())?);
@@ -1221,15 +1247,29 @@ impl Pool {
     }
 
     fn time(&mut self, roles: &[Role]) -> Result<Option<Vec<ProgramId>>, BuildError> {
+        use english::{ROLE_DIGIT, ROLE_OH, ROLE_TENS};
         let n = roles.len();
         if n < 2 || roles.iter().any(|r| CLOCK_ROLES.contains(r)) {
             return Ok(None);
         }
+        // "oh seven thirty" and "twenty three forty five" spend two words on the hour.
+        let hour =
+            if n >= 3 && matches!(roles[..2], [ROLE_OH, ROLE_DIGIT] | [ROLE_TENS, ROLE_DIGIT]) {
+                2
+            } else {
+                1
+            };
+        let padded_first = roles[0] == ROLE_OH;
         let mut list = Vec::with_capacity(3);
-        for (sep, hour_width) in [(self.colon, 0), (self.colon, 2), (self.space, 0)] {
+        let styles = if padded_first {
+            [(self.colon, 2), (self.colon, 0), (self.space, 0)]
+        } else {
+            [(self.colon, 0), (self.colon, 2), (self.space, 0)]
+        };
+        for (sep, hour_width) in styles {
             let ops = [
-                op::fold(0, 1),
-                op::fold(1, (n - 1) as u8),
+                op::fold(0, hour as u8),
+                op::fold(1, (n - hour) as u8),
                 op::fit(0, 0, MAX_HOUR),
                 op::fit(1, 0, MAX_MINUTE),
                 op::emit(0, hour_width),
@@ -1248,6 +1288,15 @@ impl Pool {
 }
 
 const MAX_CANDIDATE_ID: usize = u8::MAX as usize;
+
+/// Words that can be the minutes of a clock reading.
+fn minute_roles(roles: &[Role]) -> bool {
+    use english::{ROLE_DIGIT, ROLE_OH, ROLE_TEEN, ROLE_TENS};
+    matches!(
+        roles,
+        [ROLE_TEEN] | [ROLE_TENS] | [ROLE_TENS, ROLE_DIGIT] | [ROLE_OH, ROLE_DIGIT]
+    )
+}
 
 fn two_digit_group(roles: &[Role]) -> bool {
     use english::{ROLE_DIGIT, ROLE_TEEN, ROLE_TENS};
