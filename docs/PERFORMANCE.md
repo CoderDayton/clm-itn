@@ -91,7 +91,7 @@ Load average was 2.6–2.7. The call allocates 3 times with a reused `String` an
 
 | Step              | Work                                                                                              | Table                                                | Size             |
 | ----------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ---------------- |
-| Lexicon           | Two bucket loads per word, then one 16-byte SIMD compare per slot                                 | Cuckoo lexicon, 1024 buckets of 4 keys, plus payload | 64 KB + 16 KB    |
+| Lexicon           | Two bucket loads per word, then one 16-byte SIMD compare per slot                                 | Cuckoo; 295 words use 128 of 1024 buckets            | 8 KB + 2 KB read |
 | Word sense        | One 32-bit read per word a line rule checks                                                       | `sense`, by canonical ID, plus 8 idiom rows          | 16 KB            |
 | Span segmentation | One role read per word                                                                            | `role_of`                                            | 256 B            |
 | Shape lookup      | One bucket load per span                                                                          | Shape table, 512 buckets                             | 32 KB            |
@@ -99,7 +99,7 @@ Load average was 2.6–2.7. The call allocates 3 times with a reused `String` an
 | Cell              | One 64-bit read per span                                                                          | Cells, 32768 × 8 B                                   | 256 KB           |
 | Output            | Run the chosen candidate program (at most 15 ops) per span                                        | Candidates, 256 × 64 B per domain                    | 16 KB per domain |
 
-Every table is `static`, read-only, and starts on a 64-byte boundary, so each bucket, record or cell is one cache-line load. No table is written at run time, so there is no false sharing between threads.
+The lexicon build starts at the fewest buckets, a power of two, that keep it at most 90% full, doubles until every word places, and lookups read only those. Every table is `static`, read-only, and starts on a 64-byte boundary, so each bucket, record or cell is one cache-line load. No table is written at run time, so there is no false sharing between threads.
 
 ## Limits
 

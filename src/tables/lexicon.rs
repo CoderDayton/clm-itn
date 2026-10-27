@@ -1,7 +1,11 @@
 use crate::tables::Aligned;
 use crate::types::{CLASS_UNKNOWN, MAX_KEY_LEN, MAX_TOKENS, TokenInfo};
 
+/// Bucket capacity. A build starts at the fewest buckets, a power of two from
+/// `MIN_BUCKETS`, that fill to at most 90% (capped at `BUCKETS`), and doubles
+/// until every key places. Lookups touch only the buckets in use.
 pub const BUCKETS: usize = 1024;
+pub const MIN_BUCKETS: usize = 2;
 pub const SLOTS_PER_BUCKET: usize = 4;
 pub const SLOTS: usize = BUCKETS * SLOTS_PER_BUCKET;
 
@@ -49,6 +53,8 @@ pub struct Lexicon {
     buckets: [Bucket; BUCKETS],
     payload: Aligned<[u32; SLOTS]>,
     seed: u64,
+    /// Buckets in use are `MIN_BUCKETS << doublings`, so all-zero tables are valid.
+    doublings: u32,
 }
 
 const MISS: TokenInfo = TokenInfo {
@@ -147,7 +153,8 @@ fn decode(payload: u32) -> TokenInfo {
 #[cfg(not(clm_no_std))]
 mod build {
     use super::{
-        BUCKETS, Bucket, BuildError, Key, Lexicon, SLOTS, SLOTS_PER_BUCKET, bucket_pair, fold_key,
+        BUCKETS, Bucket, BuildError, Key, Lexicon, MIN_BUCKETS, SLOTS, SLOTS_PER_BUCKET,
+        bucket_pair, fold_key,
     };
     use crate::types::{CLASS_BOUNDARY, CanonicalId, ClassId};
 
@@ -156,7 +163,7 @@ mod build {
     const MAX_SEEDS: usize = 256;
     const SEED_STATE: u64 = 0x434C_414D_2D49_544E;
 
-    fn place_all(keys: &[Key], seed: u64, slots: &mut [u32]) -> bool {
+    fn place_all(keys: &[Key], seed: u64, buckets: usize, slots: &mut [u32]) -> bool {
         slots.fill(EMPTY_SLOT);
         let mut rng = seed ^ SEED_STATE;
         for start in 0..keys.len() {
@@ -164,7 +171,7 @@ mod build {
             let mut from = usize::MAX;
             let mut placed = false;
             for _ in 0..MAX_KICKS {
-                let (b1, b2) = bucket_pair(&keys[cur as usize], seed, BUCKETS);
+                let (b1, b2) = bucket_pair(&keys[cur as usize], seed, buckets);
                 let free = [b1, b2].into_iter().find_map(|b| {
                     let base = b * SLOTS_PER_BUCKET;
                     (base..base + SLOTS_PER_BUCKET).find(|&s| slots[s] == EMPTY_SLOT)
@@ -210,37 +217,70 @@ mod build {
                 return Err(BuildError::TooManyEntries);
             }
 
-            let mut slots = vec![EMPTY_SLOT; SLOTS];
-            let mut state = SEED_STATE;
-            for _ in 0..MAX_SEEDS {
-                let seed = crate::hash::next_seed(&mut state);
-                if !place_all(&keys, seed, &mut slots) {
+            let fit = (keys.len() * 10).div_ceil(9 * SLOTS_PER_BUCKET);
+            let mut used = fit.next_power_of_two().clamp(MIN_BUCKETS, BUCKETS);
+            loop {
+                if let Some(lex) = place(entries, &keys, used) {
+                    return Ok(lex);
+                }
+                if used == BUCKETS {
+                    return Err(BuildError::NoSeed);
+                }
+                used *= 2;
+            }
+        }
+    }
+
+    /// Places every key in the first `used` buckets under the first seed that fits.
+    fn place(
+        entries: &[(&[u8], CanonicalId, ClassId)],
+        keys: &[Key],
+        used: usize,
+    ) -> Option<Lexicon> {
+        let mut slots = vec![EMPTY_SLOT; used * SLOTS_PER_BUCKET];
+        let mut state = SEED_STATE;
+        for _ in 0..MAX_SEEDS {
+            let seed = crate::hash::next_seed(&mut state);
+            if !place_all(keys, seed, used, &mut slots) {
+                continue;
+            }
+            let mut buckets = [Bucket::EMPTY; BUCKETS];
+            let mut payload = [0u32; SLOTS];
+            for (s, &e) in slots.iter().enumerate() {
+                if e == EMPTY_SLOT {
                     continue;
                 }
-                let mut buckets = [Bucket::EMPTY; BUCKETS];
-                let mut payload = [0u32; SLOTS];
-                for (s, &e) in slots.iter().enumerate() {
-                    if e == EMPTY_SLOT {
-                        continue;
-                    }
-                    let (_, canonical, class) = entries[e as usize];
-                    buckets[s / SLOTS_PER_BUCKET].keys[s % SLOTS_PER_BUCKET] = keys[e as usize];
-                    payload[s] = u32::from(canonical) | (u32::from(class) << 16);
-                }
-                return Ok(Lexicon::from_raw(buckets, payload, seed));
+                let (_, canonical, class) = entries[e as usize];
+                buckets[s / SLOTS_PER_BUCKET].keys[s % SLOTS_PER_BUCKET] = keys[e as usize];
+                payload[s] = u32::from(canonical) | (u32::from(class) << 16);
             }
-            Err(BuildError::NoSeed)
+            return Some(Lexicon::from_raw(buckets, payload, seed, used));
         }
+        None
     }
 }
 
 impl Lexicon {
-    pub const fn from_raw(buckets: [Bucket; BUCKETS], payload: [u32; SLOTS], seed: u64) -> Self {
+    pub const fn from_raw(
+        buckets: [Bucket; BUCKETS],
+        payload: [u32; SLOTS],
+        seed: u64,
+        buckets_used: usize,
+    ) -> Self {
+        assert!(buckets_used.is_power_of_two() && buckets_used >= MIN_BUCKETS);
+        assert!(buckets_used <= BUCKETS);
         Self {
             buckets,
             payload: Aligned(payload),
             seed,
+            doublings: (buckets_used / MIN_BUCKETS).trailing_zeros(),
         }
+    }
+
+    /// Buckets the build filled from; the rest stay empty and unread.
+    #[inline(always)]
+    pub fn buckets_used(&self) -> usize {
+        MIN_BUCKETS << self.doublings
     }
 
     pub fn buckets(&self) -> &[Bucket; BUCKETS] {
@@ -253,6 +293,14 @@ impl Lexicon {
 
     pub fn seed(&self) -> u64 {
         self.seed
+    }
+
+    /// The key's two buckets. Masking by the capacity changes nothing, but lets
+    /// the compiler drop the bounds checks a fixed bucket count avoided.
+    #[inline(always)]
+    fn pair(&self, key: &Key) -> (usize, usize) {
+        let (b1, b2) = bucket_pair(key, self.seed, self.buckets_used());
+        (b1 & (BUCKETS - 1), b2 & (BUCKETS - 1))
     }
 
     #[inline(always)]
@@ -272,7 +320,7 @@ impl Lexicon {
     #[inline]
     pub fn lookup(&self, token: &[u8]) -> TokenInfo {
         match fold_key(token) {
-            Some(key) => self.resolve(&key, bucket_pair(&key, self.seed, BUCKETS)),
+            Some(key) => self.resolve(&key, self.pair(&key)),
             None => MISS,
         }
     }
@@ -285,7 +333,7 @@ impl Lexicon {
         let n = tokens.len().min(MAX_TOKENS);
         for (i, token) in tokens[..n].iter().enumerate() {
             if let Some(key) = fold_key(token) {
-                let pair = bucket_pair(&key, self.seed, BUCKETS);
+                let pair = self.pair(&key);
                 prefetch(&self.buckets[pair.0]);
                 prefetch(&self.buckets[pair.1]);
                 keys[i] = key;
@@ -442,9 +490,29 @@ mod tests {
     }
 
     #[test]
+    fn build_uses_the_fewest_buckets_that_hold_the_words() {
+        for (n, want) in [(1, 2), (10, 4), (295, 128), (1000, 512)] {
+            let words = random_words(n, 3);
+            let lex = build_words(&words);
+            assert_eq!(lex.buckets_used(), want, "{n} words");
+            for (i, w) in words.iter().enumerate() {
+                assert_eq!(lex.lookup(w), expected(i), "word {i} of {n}");
+            }
+            let mut out = [MISS; MAX_TOKENS];
+            lex.lookup_window(&[&words[0], b"notaword"], &mut out);
+            assert_eq!(out[..2], [expected(0), MISS]);
+        }
+    }
+
+    #[test]
     fn from_raw_round_trips() {
         let lex = Lexicon::build(&[(b"five", 5, 2), (b"six", 6, 3)]).expect("build");
-        let copy = Lexicon::from_raw(*lex.buckets(), **lex.payload(), lex.seed());
+        let copy = Lexicon::from_raw(
+            *lex.buckets(),
+            **lex.payload(),
+            lex.seed(),
+            lex.buckets_used(),
+        );
         assert!(copy == lex);
         assert_eq!(
             copy.lookup(b"six"),

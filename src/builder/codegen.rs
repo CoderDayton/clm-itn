@@ -179,9 +179,10 @@ fn lexicon(t: &Tables) -> String {
     }
     b.push_str("        a\n    }");
     format!(
-        "crate::tables::lexicon::Lexicon::from_raw({b}, {}, {:#x})",
+        "crate::tables::lexicon::Lexicon::from_raw({b}, {}, {:#x}, {})",
         fill("u32", &lx.payload()[..], 0, |v| format!("{v:#x}")),
-        lx.seed()
+        lx.seed(),
+        lx.buckets_used()
     )
 }
 

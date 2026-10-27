@@ -80,6 +80,7 @@ impl Tables {
             [lexicon::Bucket::EMPTY; lexicon::BUCKETS],
             [0; lexicon::SLOTS],
             0,
+            lexicon::MIN_BUCKETS,
         ),
         role_of: Aligned([0; 256]),
         value_of: Aligned([0; MAX_CANONICAL]),
