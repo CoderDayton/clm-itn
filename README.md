@@ -29,8 +29,8 @@ clm-itn = { git = "https://github.com/CoderDayton/clm-itn" }
 ```
 
 ```rust
-let engine = clm_itn::Normalizer::english();
-assert_eq!(engine.normalize("at five thirty pm"), "at 5:30 pm");
+let normalizer = clm_itn::Normalizer::english();
+assert_eq!(normalizer.normalize("at five thirty pm"), "at 5:30 pm");
 ```
 
 ## Docs

@@ -36,8 +36,8 @@ pub struct Formatted {
 /// on.
 ///
 /// ```
-/// let engine = clm_itn::Normalizer::english();
-/// assert_eq!(engine.normalize("at five thirty pm"), "at 5:30 pm");
+/// let normalizer = clm_itn::Normalizer::english();
+/// assert_eq!(normalizer.normalize("at five thirty pm"), "at 5:30 pm");
 /// ```
 #[derive(Clone, Copy)]
 pub struct Normalizer<'t> {
@@ -162,11 +162,11 @@ impl<'t> Normalizer<'t> {
     /// ```
     /// use clm_itn::{Normalizer, Setting};
     ///
-    /// let engine = Normalizer::english()
+    /// let normalizer = Normalizer::english()
     ///     .without(Setting::SingleDigits)
     ///     .without(Setting::Currency);
-    /// assert_eq!(engine.normalize("eighty dollars"), "80 dollars");
-    /// assert_eq!(engine.normalize("like eight years"), "like eight years");
+    /// assert_eq!(normalizer.normalize("eighty dollars"), "80 dollars");
+    /// assert_eq!(normalizer.normalize("like eight years"), "like eight years");
     /// ```
     #[must_use]
     pub const fn without(mut self, setting: Setting) -> Self {
@@ -198,8 +198,8 @@ impl<'t> Normalizer<'t> {
     /// [`normalize_into`](Self::normalize_into).
     ///
     /// ```
-    /// let engine = clm_itn::Normalizer::english();
-    /// assert_eq!(engine.normalize("room four oh two."), "room 402.");
+    /// let normalizer = clm_itn::Normalizer::english();
+    /// assert_eq!(normalizer.normalize("room four oh two."), "room 402.");
     /// ```
     #[must_use]
     pub fn normalize(&self, text: &str) -> String {
@@ -212,11 +212,11 @@ impl<'t> Normalizer<'t> {
     /// first to reuse one buffer for many lines.
     ///
     /// ```
-    /// let engine = clm_itn::Normalizer::english();
+    /// let normalizer = clm_itn::Normalizer::english();
     /// let mut out = String::new();
     /// for line in ["fifty percent off", "it costs five euros"] {
     ///     out.clear();
-    ///     engine.normalize_into(line, &mut out);
+    ///     normalizer.normalize_into(line, &mut out);
     ///     println!("{out}");
     /// }
     /// ```

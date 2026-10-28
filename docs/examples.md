@@ -4,7 +4,7 @@ Every Rust block here runs as a doctest (`cargo test --doc`).
 
 - [Normalize a line](#normalize-a-line)
 - [Settings](#settings)
-- [Share one engine across threads](#share-one-engine-across-threads)
+- [Share one normalizer across threads](#share-one-normalizer-across-threads)
 - [Without `std`](#without-std)
 - [Command line](#command-line)
 - [Scoring and timing your own data](#scoring-and-timing-your-own-data)
@@ -16,28 +16,28 @@ Every Rust block here runs as a doctest (`cargo test --doc`).
 ```rust
 use clm_itn::Normalizer;
 
-let engine = Normalizer::english();
+let normalizer = Normalizer::english();
 assert_eq!(
-    engine.normalize("meet me at five thirty pm in room four oh two."),
+    normalizer.normalize("meet me at five thirty pm in room four oh two."),
     "meet me at 5:30 pm in room 402."
 );
 ```
 
-`Normalizer::default()` is the same engine.
+`Normalizer::default()` is the same normalizer.
 
 24-hour times and ordinals after hundreds:
 
 ```rust
 use clm_itn::Normalizer;
 
-let engine = Normalizer::english();
+let normalizer = Normalizer::english();
 for (spoken, written) in [
     ("oh seven thirty", "07:30"),
     ("twenty three forty five hours", "23:45 hours"),
     ("oh eight hundred hours", "0800 hours"),
     ("one hundred and first", "101st"),
 ] {
-    assert_eq!(engine.normalize(spoken), written);
+    assert_eq!(normalizer.normalize(spoken), written);
 }
 ```
 
@@ -46,7 +46,7 @@ To reuse one buffer, call `normalize_into`. It appends to the `String`, so clear
 ```rust
 use clm_itn::Normalizer;
 
-let engine = Normalizer::english();
+let normalizer = Normalizer::english();
 let mut out = String::new();
 for (spoken, written) in [
     ("fifty percent off", "50% off"),
@@ -54,7 +54,7 @@ for (spoken, written) in [
     ("it costs five euros", "it costs 5 euros"),
 ] {
     out.clear();
-    engine.normalize_into(spoken, &mut out);
+    normalizer.normalize_into(spoken, &mut out);
     assert_eq!(out, written);
 }
 ```
@@ -86,20 +86,20 @@ assert_eq!(plain.normalize("like eight years"), "like eight years");
 assert_eq!(plain.normalize("fifty percent off"), "50 percent off");
 ```
 
-## Share one engine across threads
+## Share one normalizer across threads
 
 `Normalizer` is `Copy`, `Send` and `Sync`. The tables are static and read-only, so build it once and hand a copy to each thread.
 
 ```rust
 use clm_itn::Normalizer;
 
-let engine = Normalizer::english();
+let normalizer = Normalizer::english();
 let lines = ["at five thirty pm", "room four oh two", "fifty percent off"];
 
 let written: Vec<String> = std::thread::scope(|s| {
     let handles: Vec<_> = lines
         .iter()
-        .map(|line| s.spawn(move || engine.normalize(line)))
+        .map(|line| s.spawn(move || normalizer.normalize(line)))
         .collect();
     handles.into_iter().map(|h| h.join().unwrap()).collect()
 });
