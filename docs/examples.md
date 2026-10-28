@@ -61,11 +61,11 @@ for (spoken, written) in [
 
 ## Settings
 
-Every rewrite beyond writing numbers as digits is a `Setting`. All of them are on by default; switch off the ones you don't want.
+Every rewrite beyond writing numbers as digits is a `Setting`. All are on by default except `SingleDigits`; switch off the ones you don't want and turn that one on if you want it.
 
 | Setting | On | Off |
 |---|---|---|
-| `SingleDigits` | like 8 years | like eight years |
+| `SingleDigits` (off by default) | like 8 years | like eight years |
 | `Percent` | 50% | 50 percent |
 | `Currency` | $5, $4.50 | 5 dollars, 4 dollars and 50 cents |
 | `Dates` | July 4th, 1990 | july 4th 1990 |
@@ -77,12 +77,14 @@ Every rewrite beyond writing numbers as digits is a `Setting`. All of them are o
 ```rust
 use clm_itn::{Normalizer, Setting};
 
-let all = Normalizer::english();
-assert_eq!(all.normalize("like eight years"), "like 8 years");
+let words = Normalizer::english();
+assert_eq!(words.normalize("like eight years"), "like eight years");
 
-let plain = all.without(Setting::SingleDigits).without(Setting::Percent);
+let digits = words.with(Setting::SingleDigits);
+assert_eq!(digits.normalize("like eight years"), "like 8 years");
+
+let plain = words.without(Setting::Percent);
 assert!(!plain.is_on(Setting::Percent));
-assert_eq!(plain.normalize("like eight years"), "like eight years");
 assert_eq!(plain.normalize("fifty percent off"), "50 percent off");
 ```
 
@@ -117,14 +119,29 @@ clm-itn = { version = "0.1", default-features = false }
 
 ## Command line
 
-One sentence per line, from a pipe or a file:
+Text as arguments, one output line each, or one sentence per line from a pipe or a file:
 
 ```bash
+clm-itn "whats four times four" "at five thirty pm"
+# whats 4 times 4
+# at 5:30 pm
+
+clm-itn --single-digits "like eight years"
+# like 8 years
+
+clm-itn -dp "like eight years at fifty percent"
+# like 8 years at 50 percent
+
+clm-itn -f notes.txt -f more.txt > written.txt
+
+clm-itn --json "at five thirty pm"
+# {"input":"at five thirty pm","output":"at 5:30 pm"}
+
 echo "at five thirty pm" | clm-itn
 # at 5:30 pm
 
-echo "like eight years at fifty percent" | clm-itn --no-single-digits --no-percent
-# like eight years at 50 percent
+echo "like eight years at fifty percent" | clm-itn --single-digits --no-percent
+# like 8 years at 50 percent
 
 clm-itn < spoken.txt > written.txt
 ```

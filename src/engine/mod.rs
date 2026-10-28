@@ -151,7 +151,7 @@ impl Normalizer<'static> {
     pub fn english() -> Normalizer<'static> {
         Normalizer {
             tables: crate::tables::english::english(),
-            off: 0,
+            off: Setting::SingleDigits.bit(),
         }
     }
 }
@@ -163,10 +163,10 @@ impl<'t> Normalizer<'t> {
     /// use clm_itn::{Normalizer, Setting};
     ///
     /// let normalizer = Normalizer::english()
-    ///     .without(Setting::SingleDigits)
+    ///     .with(Setting::SingleDigits)
     ///     .without(Setting::Currency);
     /// assert_eq!(normalizer.normalize("eighty dollars"), "80 dollars");
-    /// assert_eq!(normalizer.normalize("like eight years"), "like eight years");
+    /// assert_eq!(normalizer.normalize("like eight years"), "like 8 years");
     /// ```
     #[must_use]
     pub const fn without(mut self, setting: Setting) -> Self {
@@ -174,7 +174,7 @@ impl<'t> Normalizer<'t> {
         self
     }
 
-    /// Switches `setting` back on.
+    /// Switches `setting` on.
     #[must_use]
     pub const fn with(mut self, setting: Setting) -> Self {
         self.off &= !setting.bit();

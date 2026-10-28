@@ -2,7 +2,11 @@ use clm_itn::{Normalizer, Setting};
 
 /// AP style: lone single numbers stay words.
 fn engine() -> Normalizer<'static> {
-    Normalizer::english().without(Setting::SingleDigits)
+    Normalizer::english()
+}
+
+fn digits() -> Normalizer<'static> {
+    Normalizer::english().with(Setting::SingleDigits)
 }
 
 fn line(engine: &Normalizer, text: &str) -> String {
@@ -208,7 +212,7 @@ fn normalize_keeps_ambiguous_runs_as_words() {
 #[test]
 fn single_digits_writes_lone_numbers_as_digits_and_keeps_ordinals() {
     let ap = engine();
-    let digits = Normalizer::english();
+    let digits = digits();
     let cases = [
         ("like eight years", "like eight years", "like 8 years"),
         (
@@ -246,7 +250,7 @@ fn single_digits_writes_lone_numbers_as_digits_and_keeps_ordinals() {
 
 #[test]
 fn single_digits_keeps_one_to_nine_as_words_when_not_a_count() {
-    let digits = Normalizer::english();
+    let digits = digits();
     let words = [
         "no one knows",
         "which one do you want",
@@ -358,7 +362,7 @@ fn a_window_cut_keeps_the_word_before_a_number() {
 #[test]
 fn a_relative_time_stays_as_spoken() {
     let ap = engine();
-    let digits = Normalizer::english();
+    let digits = digits();
     let same = [
         "it is ten to four",
         "meet me at twenty five to six.",
@@ -754,7 +758,7 @@ fn counts_of_a_thousand_or_more_get_commas() {
 #[test]
 fn a_letter_next_to_a_number_joins_it() {
     check_lines(
-        &Normalizer::english(),
+        &digits(),
         &[
             ("i bought a four k monitor", "i bought a 4k monitor"),
             ("she lives in apartment four b", "she lives in apartment 4b"),
@@ -769,7 +773,7 @@ fn a_letter_next_to_a_number_joins_it() {
 #[test]
 fn each_setting_switches_off_only_its_own_rewrite() {
     use Setting::*;
-    let all = Normalizer::english();
+    let all = digits();
     let cases = [
         (
             SingleDigits,
@@ -1030,7 +1034,7 @@ fn spelled_numbers_of_any_length_read_back_exactly() {
 #[test]
 fn letter_and_dot_joins_ignore_wide_gaps() {
     check_lines(
-        &Normalizer::english(),
+        &digits(),
         &[
             ("four  k", "4k"),
             ("four\u{a0}k", "4k"),

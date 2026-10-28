@@ -1,6 +1,11 @@
 use crate::gold::*;
 use crate::lines::Case;
 
+/// The gold sets are written with single digits on.
+fn digits() -> clm_itn::Normalizer<'static> {
+    clm_itn::Normalizer::english().with(clm_itn::Setting::SingleDigits)
+}
+
 fn case(s: &str, w: &str, t: &str) -> Case {
     Case {
         spoken: s.into(),
@@ -101,7 +106,7 @@ fn scores_the_dictation_gold_set() {
     assert_eq!(files[0].malformed, 0);
     let cases: Vec<&Case> = files[0].cases.iter().collect();
     assert!(cases.iter().all(|c| c.written.is_some()));
-    let t = score(&clm_itn::Normalizer::english(), &cases, false);
+    let t = score(&digits(), &cases, false);
     assert_eq!(t.all.total, cases.len());
     assert!(t.all.exact > t.all.total / 2, "{} exact", t.all.exact);
 }
@@ -112,6 +117,6 @@ fn the_sixty_second_paragraph_is_exact() {
     let files = crate::lines::load(path).unwrap();
     let cases: Vec<&Case> = files[0].cases.iter().collect();
     assert_eq!(cases.len(), 1);
-    let t = score(&clm_itn::Normalizer::english(), &cases, true);
+    let t = score(&digits(), &cases, true);
     assert_eq!(t.all.exact, 1, "{:?}", t.failures);
 }

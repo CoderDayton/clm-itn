@@ -17,7 +17,7 @@ Three lookups over static tables, no model, no dependencies. `normalize` runs at
 - Cardinals, ordinals, decimals, times (12- and 24-hour), dates, money, percents, measures, and identifiers
 - One call, `normalize`: any line length, keeps punctuation, never cuts a number, cannot fail
 - Flat memory: 76,736 B of heap per call from 10⁴ to 10⁷ words, and 78.5–85.6 ns per word on a 10⁶-word dense line
-- Settings: every rewrite beyond digits (`%`, `$`, dates, single digits, and more) is on by default and can be switched off
+- Settings: every rewrite beyond digits (`%`, `$`, dates, letter joins, and more) is on by default and can be switched off; single digits ("8" for "eight") are opt-in
 - Deterministic static tables; `Normalizer` is `Copy`, `Send`, `Sync`
 - No dependencies; `no_std` (with `alloc`) when default features are off
 
@@ -25,7 +25,7 @@ Three lookups over static tables, no model, no dependencies. `normalize` runs at
 
 ```toml
 [dependencies]
-clm-itn = { git = "https://github.com/CoderDayton/clm-itn" }
+clm-itn = "0.1.0"
 ```
 
 ```rust
@@ -33,9 +33,25 @@ let normalizer = clm_itn::Normalizer::english();
 assert_eq!(normalizer.normalize("at five thirty pm"), "at 5:30 pm");
 ```
 
+Command line:
+
+```bash
+cargo install clm-itn
+
+clm-itn "at five thirty pm"                 # text arguments
+clm-itn -f notes.txt > written.txt          # whole files
+echo "fifty percent off" | clm-itn          # pipes
+clm-itn -p "fifty percent off"              # switch a setting off
+clm-itn --json "room four oh two"           # JSON output
+clm-itn --help
+```
+
+Every command is in [COMMANDS.md](https://github.com/CoderDayton/clm-itn/blob/main/docs/COMMANDS.md).
+
 ## Docs
 
 - [API](https://github.com/CoderDayton/clm-itn/blob/main/docs/API.md)
+- [Commands](https://github.com/CoderDayton/clm-itn/blob/main/docs/COMMANDS.md)
 - [Examples](https://github.com/CoderDayton/clm-itn/blob/main/docs/examples.md)
 - [Performance](https://github.com/CoderDayton/clm-itn/blob/main/docs/PERFORMANCE.md)
 - [Training](https://github.com/CoderDayton/clm-itn/blob/main/docs/TRAINING.md)

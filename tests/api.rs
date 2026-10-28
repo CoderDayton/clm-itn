@@ -29,8 +29,8 @@ fn normalize_into_appends_to_the_buffer() {
 }
 
 #[test]
-fn every_setting_is_on_by_default_and_switches_off_alone() {
-    let all = Normalizer::english();
+fn every_setting_but_single_digits_is_on_by_default_and_switches_off_alone() {
+    let all = Normalizer::english().with(Setting::SingleDigits);
     for &s in Setting::ALL {
         assert!(all.is_on(s), "{s:?}");
         let off = all.without(s);
@@ -38,9 +38,23 @@ fn every_setting_is_on_by_default_and_switches_off_alone() {
         assert!(Setting::ALL.iter().all(|&o| o == s || off.is_on(o)));
         assert!(off.with(s).is_on(s), "{s:?}");
     }
-    assert!(Normalizer::default().is_on(Setting::SingleDigits));
+    for n in [Normalizer::english(), Normalizer::default()] {
+        for &s in Setting::ALL {
+            assert_eq!(n.is_on(s), s != Setting::SingleDigits, "{s:?}");
+        }
+    }
     let off = all.without(Setting::Percent);
     assert!(format!("{off:?}").contains("Percent"), "{off:?}");
+}
+
+#[test]
+fn single_digits_are_opt_in() {
+    let words = Normalizer::english();
+    assert_eq!(words.normalize("like eight years"), "like eight years");
+    assert_eq!(words.normalize("twenty five people"), "25 people");
+    let digits = words.with(Setting::SingleDigits);
+    assert_eq!(digits.normalize("like eight years"), "like 8 years");
+    assert_eq!(digits.normalize("one or more files"), "1 or more files");
 }
 
 #[test]

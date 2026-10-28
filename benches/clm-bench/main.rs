@@ -19,8 +19,8 @@ mod tiers;
 use std::hint::black_box;
 use std::process::ExitCode;
 
-use clm_itn::Normalizer;
 use clm_itn::types::MAX_TOKENS;
+use clm_itn::{Normalizer, Setting};
 
 use replay::{CorpusOpts, Mode};
 
@@ -74,7 +74,7 @@ fn run_gate(
     ns_per_tick: f64,
     gate: bool,
 ) -> ExitCode {
-    let engine = Normalizer::english();
+    let engine = Normalizer::english().with(Setting::SingleDigits);
     let corpus = corpus::Corpus::generate(n, seed);
     let n = corpus.len();
     let mut ticks = vec![0u32; n];
@@ -155,10 +155,10 @@ fn run_corpus(
     overhead: u64,
     ns_per_tick: f64,
 ) -> ExitCode {
-    let engine = opts
-        .off
-        .iter()
-        .fold(Normalizer::english(), |e, &s| e.without(s));
+    let engine = opts.off.iter().fold(
+        Normalizer::english().with(Setting::SingleDigits),
+        |e, &s| e.without(s),
+    );
     if !opts.off.is_empty() {
         let names: Vec<&str> = opts.off.iter().map(|s| s.name()).collect();
         println!("settings off:   {}", names.join(", "));

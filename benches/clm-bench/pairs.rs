@@ -1,8 +1,8 @@
 use std::process::ExitCode;
 
-use clm_itn::Normalizer;
 use clm_itn::tables::Tables;
 use clm_itn::types::ROLE_NONE;
+use clm_itn::{Normalizer, Setting};
 
 use crate::score::{DIGITS_LEGEND, WordRole, accuracy, is_partial};
 
@@ -347,7 +347,7 @@ pub fn run(path: &str, isolated: bool) -> ExitCode {
     };
     let tables = clm_itn::tables::english();
     let (records, malformed) = parse_records(&text, |w| number_word(tables, w));
-    let engine = Normalizer::english();
+    let engine = Normalizer::english().with(Setting::SingleDigits);
     let mut tally = PairTally::default();
     let mut sentence = String::new();
     let mut got = String::new();
