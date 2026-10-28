@@ -31,3 +31,6 @@ __pycache__/
 
 # Project Files
 CLAUDE.md
+
+# Personal benchmark data
+tests/data/itn_benchmark.jsonl

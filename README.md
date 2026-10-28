@@ -5,12 +5,12 @@
 Inverse text normalization for English: spoken numbers in, written numbers out.
 
 [![CI](https://github.com/CoderDayton/clm-itn/actions/workflows/ci.yml/badge.svg)](https://github.com/CoderDayton/clm-itn/actions/workflows/ci.yml)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/CoderDayton/clm-itn/blob/main/LICENSE)
 ![Rust 1.92+](https://img.shields.io/badge/rust-1.92%2B-orange.svg)
 
 </div>
 
-Three lookups over static tables, no model, no dependencies. `normalize` runs at p99 841–847 ns per utterance of up to 8 tokens, and p50 12.5 µs on a 168-word paragraph ([performance](docs/PERFORMANCE.md)).
+Three lookups over static tables, no model, no dependencies. `normalize` runs at p99 841–847 ns per utterance of up to 8 tokens, and p50 12.5 µs on a 168-word paragraph ([performance](https://github.com/CoderDayton/clm-itn/blob/main/docs/PERFORMANCE.md)).
 
 ## Features
 
@@ -35,10 +35,10 @@ assert_eq!(engine.normalize("at five thirty pm"), "at 5:30 pm");
 
 ## Docs
 
-- [API](docs/API.md)
-- [Examples](docs/examples.md)
-- [Performance](docs/PERFORMANCE.md)
-- [Training](docs/TRAINING.md)
+- [API](https://github.com/CoderDayton/clm-itn/blob/main/docs/API.md)
+- [Examples](https://github.com/CoderDayton/clm-itn/blob/main/docs/examples.md)
+- [Performance](https://github.com/CoderDayton/clm-itn/blob/main/docs/PERFORMANCE.md)
+- [Training](https://github.com/CoderDayton/clm-itn/blob/main/docs/TRAINING.md)
 
 ## License
 
