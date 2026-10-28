@@ -25,6 +25,22 @@ assert_eq!(
 
 `Normalizer::default()` is the same engine.
 
+24-hour times and ordinals after hundreds:
+
+```rust
+use clm_itn::Normalizer;
+
+let engine = Normalizer::english();
+for (spoken, written) in [
+    ("oh seven thirty", "07:30"),
+    ("twenty three forty five hours", "23:45 hours"),
+    ("oh eight hundred hours", "0800 hours"),
+    ("one hundred and first", "101st"),
+] {
+    assert_eq!(engine.normalize(spoken), written);
+}
+```
+
 To reuse one buffer, call `normalize_into`. It appends to the `String`, so clear it between lines:
 
 ```rust
