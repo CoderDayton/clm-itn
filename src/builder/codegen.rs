@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use crate::tables::Tables;
 use crate::tables::candidate::Candidate;
 use crate::tables::lexicon::Key;
 use crate::tables::shape::SHAPE_SLOTS;
+use crate::tables::{Tables, Vocab};
 
 pub fn to_rust(t: &Tables, name: &str) -> String {
     let mut s = String::new();
@@ -66,6 +66,13 @@ pub fn to_rust(t: &Tables, name: &str) -> String {
         "    sense: crate::tables::Aligned({}),",
         sparse("u32", &t.sense[..])
     );
+    for (name, values) in [("kind_of", &t.kind_of), ("aux_of", &t.aux_of)] {
+        let _ = writeln!(
+            s,
+            "    {name}: crate::tables::Aligned({}),",
+            sparse("u8", &values[..])
+        );
+    }
     let _ = writeln!(
         s,
         "    starts: crate::tables::Aligned({}),",
@@ -101,8 +108,24 @@ pub fn to_rust(t: &Tables, name: &str) -> String {
     let _ = writeln!(s, "    lead_skip_roles: {:#06x},", t.lead_skip_roles);
     let _ = writeln!(s, "    left_folds: {:?},", t.left_folds);
     let _ = writeln!(s, "    idioms: {:?},", t.idioms);
+    let _ = writeln!(s, "    vocab: {},", vocab(&t.vocab));
     s.push_str("};\n");
     s
+}
+
+fn vocab(v: &Vocab) -> String {
+    format!(
+        "crate::tables::Vocab {{ names: {:?}, name_id: {:?}, months: {:?}, hours: {:?}, \
+centuries: {:?}, zones: {:?}, not_after_number: {:#x}, not_before_number: {:#x} }}",
+        v.names,
+        v.name_id,
+        v.months,
+        v.hours,
+        v.centuries,
+        v.zones,
+        v.not_after_number,
+        v.not_before_number
+    )
 }
 
 fn mode<T: Copy + Eq + std::hash::Hash>(values: &[T]) -> T {

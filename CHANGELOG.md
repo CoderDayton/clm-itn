@@ -9,11 +9,13 @@ follows [Semantic Versioning](https://semver.org/).
 ### Added
 - `Normalizer` with one entry point, `normalize`, plus `normalize_into` for buffer reuse; `no_std` with `alloc` when default features are off.
 - Cardinals, ordinals, decimals, times, dates, money, percents, measures and identifiers, read from spoken English.
-- `Setting`: every rewrite beyond digits (`%`, `$`, dates, single digits, letter joins, and more) is on by default and can be switched off.
+- `Setting`: every rewrite beyond digits (`%`, `$`, dates, letter joins, and more) is on by default and can be switched off. `SingleDigits` is the exception: a lone "eight" stays a word until you turn it on.
 - Context cues for times: "it's", "it is" and "it was" before a clock reading; impossible times stay as spoken.
 - 24-hour times ("oh seven thirty" → `07:30`, "oh eight hundred hours" → `0800 hours`) and ordinals after hundreds ("one hundred and first" → `101st`).
 - Whitespace kept as written; numbers of any length.
-- `clm-itn` command-line filter and `clm-learn` table builder; `clm-bench` for scoring and timing corpora.
+- `clm-itn` command line: text arguments, `-f <FILE>`, or a stdin filter; `--json` output; `--no-<setting>` and `--single-digits` flags with combinable short forms (`-dp`); help when run bare in a terminal.
+- `clm-learn` table builder and `clm-bench` for scoring and timing corpora.
+- A `Language` definition the table builder reads; the engine takes every word it matches or writes from the tables. Built tables can be saved to and loaded from bytes (`internals`).
 
 ### Performance
 - 841–847 ns p99 per utterance of up to 8 tokens.

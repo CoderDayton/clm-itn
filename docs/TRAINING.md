@@ -2,7 +2,7 @@
 
 How the corpus pipeline learns table entries from spoken/written pairs, and why the shipped tables do not use them.
 
-The shipped English tables are hand-built (`src/builder/english.rs`). A corpus pipeline can learn Tier 2 context rules, Tier 3 rank orders, and the shape ranking from counts, but it does not improve formatting accuracy, so `src/builder/learned.txt` ships header-only.
+The shipped English tables are hand-built from the English `Language` (`src/builder/english.rs`, type in `src/builder/language.rs`). A corpus pipeline can learn Tier 2 context rules, Tier 3 rank orders, and the shape ranking from counts, but it does not improve formatting accuracy, so `src/builder/learned.txt` ships header-only.
 
 ## Pipeline
 

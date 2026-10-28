@@ -42,6 +42,58 @@ pub mod sense {
     pub const FIVE: u32 = 1 << 21;
     pub const QUARTER: u32 = 1 << 22;
     pub const AND: u32 = 1 << 23;
+    /// "am", "pm" or the "m" of "a m".
+    pub const MERIDIEM: u32 = 1 << 24;
+    /// A word after which a month name is a verb ("we march").
+    pub const SUBJECT: u32 = 1 << 25;
+}
+
+/// Word kinds in `Tables::kind_of`: the words the line passes look for. A
+/// kind with an `aux` value in `Tables::aux_of` says what it carries.
+pub mod kind {
+    /// The article before a scale or unit ("a hundred").
+    pub const A: u8 = 1;
+    /// A lone letter. Never in the table; found from the spelling.
+    pub const LETTER: u8 = 2;
+    pub const OF: u8 = 3;
+    pub const PER: u8 = 4;
+    pub const DOT: u8 = 5;
+    /// Repeats the digit after it; `aux` is the copies added ("double" 1).
+    pub const DOUBLE: u8 = 6;
+    pub const HUNDRED: u8 = 7;
+    pub const STREET: u8 = 8;
+    /// A month name that can be a verb; `aux` 1 also lets an adverb follow.
+    pub const MONTH_VERB: u8 = 9;
+    /// "1" to "12" written as digits. Never in the table.
+    pub const CLOCK_DIGITS: u8 = 10;
+    pub const HUNDREDS: u8 = 11;
+    pub const FILLER: u8 = 12;
+    /// "thousand" and above; `aux` is the power of ten.
+    pub const SCALE: u8 = 13;
+    /// "noon" or "midnight".
+    pub const NOON: u8 = 14;
+}
+
+/// Words the engine writes or compares by name, in `Vocab::names`.
+pub mod name {
+    pub const ONE: usize = 0;
+    pub const TWO: usize = 1;
+    pub const OH: usize = 2;
+    pub const THOUSAND: usize = 3;
+    pub const BILLION: usize = 4;
+    pub const PERCENT: usize = 5;
+    /// The two-word spelling of `PERCENT`; has no ID.
+    pub const PER_CENT: usize = 6;
+    pub const TWENTY: usize = 7;
+    pub const TWELVE: usize = 8;
+    pub const HOURS: usize = 9;
+    pub const AND: usize = 10;
+    pub const CENT: usize = 11;
+    pub const FIRST: usize = 12;
+    /// The meridiem a spelled "a m" joins to.
+    pub const AM: usize = 13;
+    pub const DOT: usize = 14;
+    pub const COUNT: usize = 15;
 }
 
 pub type ClassId = u8;
@@ -147,8 +199,10 @@ impl core::fmt::Display for FormatError {
 
 impl core::error::Error for FormatError {}
 
-/// A rewrite beyond writing numbers as digits. Every setting is on by default;
-/// switch one off with [`Normalizer::without`](crate::Normalizer::without).
+/// A rewrite beyond writing numbers as digits. Every setting is on by default
+/// except [`SingleDigits`](Setting::SingleDigits). Switch one off with
+/// [`Normalizer::without`](crate::Normalizer::without) and on with
+/// [`Normalizer::with`](crate::Normalizer::with).
 ///
 /// New settings may be added, so a `match` on `Setting` needs a `_` arm.
 ///
@@ -161,7 +215,7 @@ impl core::error::Error for FormatError {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Setting {
-    /// A lone 0–9 becomes a digit: "like 8 years". Off: "like eight years".
+    /// A lone 0–9 becomes a digit: "like 8 years". Off, the default: "like eight years".
     SingleDigits,
     /// "percent" becomes `%`: "50%". Off: "50 percent".
     Percent,

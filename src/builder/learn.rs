@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::builder::english::{SRC_CARDINAL, SRC_IDENTIFIER, SRC_TIME};
+use crate::builder::language::{Language, SRC_CARDINAL, SRC_IDENTIFIER, SRC_TIME};
 use crate::builder::learned::{Cell, ClassRef, Learned, Rule, ShapeCount};
 use crate::builder::{BuildError, Built, CLASS_IDS, build};
 use crate::engine::span::{Affixes, Span, segment};
@@ -626,15 +626,17 @@ pub struct Options {
 }
 
 pub fn learn(
+    lang: &'static Language,
     train: &str,
     val: &str,
     windows: Windows,
     format: Format,
 ) -> Result<Outcome, LearnError> {
-    learn_with(train, val, windows, format, &Options::default())
+    learn_with(lang, train, val, windows, format, &Options::default())
 }
 
 pub fn learn_with(
+    lang: &'static Language,
     train: &str,
     val: &str,
     windows: Windows,
@@ -644,7 +646,7 @@ pub fn learn_with(
     let is_plain = |o: &Observed| o.label == Label::Domain(DOMAIN_PLAIN);
     let keep = |o: &Observed| opts.plain != Plain::Off || !is_plain(o);
     let scored = |o: &Observed| opts.plain == Plain::All || !is_plain(o);
-    let built = |l: &Learned| build(l).map_err(LearnError::Build);
+    let built = |l: &Learned| build(lang, l).map_err(LearnError::Build);
     let base = built(&Learned::default())?;
     let mut shapes = ShapeTally::default();
     let mut cue_tally = CueTally::default();
@@ -661,7 +663,7 @@ pub fn learn_with(
         before.add(&base, o);
     })?;
     let counted = shapes.finish();
-    let floors = sweep_floor(&counted, val, format)?;
+    let floors = sweep_floor(lang, &counted, val, format)?;
     let mut learned = Learned {
         cues,
         shapes: counted,
@@ -706,7 +708,12 @@ pub fn learn_with(
 
 type Sweep = Vec<(u16, f64)>;
 
-fn sweep_floor(counted: &[ShapeCount], val: &str, format: Format) -> Result<Sweep, LearnError> {
+fn sweep_floor(
+    lang: &'static Language,
+    counted: &[ShapeCount],
+    val: &str,
+    format: Format,
+) -> Result<Sweep, LearnError> {
     let mut floors = Vec::new();
     for floor in FLOORS {
         let l = Learned {
@@ -714,7 +721,7 @@ fn sweep_floor(counted: &[ShapeCount], val: &str, format: Format) -> Result<Swee
             floor: Some(floor),
             ..Learned::default()
         };
-        let b = build(&l).map_err(LearnError::Build)?;
+        let b = build(lang, &l).map_err(LearnError::Build)?;
         let (exact, total) = exact_sentences(format, &b, val);
         floors.push((floor, exact as f64 / total.max(1) as f64));
     }
@@ -1022,7 +1029,11 @@ mod tests {
         use crate::types::{
             CLASS_BOUNDARY, DOMAIN_CARDINAL, DOMAIN_IDENTIFIER, DOMAIN_PLAIN, DOMAIN_TIME,
         };
-        let b = crate::builder::build(&crate::builder::learned::Learned::default()).expect("b");
+        let b = crate::builder::build(
+            &crate::builder::english::LANGUAGE,
+            &crate::builder::learned::Learned::default(),
+        )
+        .expect("b");
         let mut obs = vec![at_context(THE, CLASS_BOUNDARY, DOMAIN_PLAIN); 30];
         obs.extend(vec![at_context(AT, CLASS_BOUNDARY, DOMAIN_TIME); 20]);
         obs.extend(vec![at_context(AT, CLASS_BOUNDARY, DOMAIN_CARDINAL); 5]);
@@ -1063,7 +1074,11 @@ mod tests {
     #[test]
     fn cell_tally_ranks_candidates_by_gold_matches() {
         use crate::types::{DOMAIN_CARDINAL, cell_index};
-        let b = crate::builder::build(&crate::builder::learned::Learned::default()).expect("b");
+        let b = crate::builder::build(
+            &crate::builder::english::LANGUAGE,
+            &crate::builder::learned::Learned::default(),
+        )
+        .expect("b");
         let one = |written: &str| format!("S it was five thirty now\nT 2 2 CARDINAL {written}\n\n");
         let mut text = one("530").repeat(MIN_COUNT as usize);
         text.push_str(&one("5:30").repeat(3));
@@ -1151,8 +1166,15 @@ mod tests {
         let mut text = fixture();
         text.push_str(&"S two of them\n\n".repeat(500));
         let opts = Options { plain: Plain::Off };
-        let out =
-            learn_with(&text, &text, &runtime_windows, &runtime_format, &opts).expect("learn");
+        let out = learn_with(
+            &crate::builder::english::LANGUAGE,
+            &text,
+            &text,
+            &runtime_windows,
+            &runtime_format,
+            &opts,
+        )
+        .expect("learn");
         let l = &out.learned;
         let domains: Vec<u8> = l
             .pairs
@@ -1164,8 +1186,15 @@ mod tests {
         assert!(!domains.contains(&DOMAIN_PLAIN), "{domains:?}");
         assert_eq!(l.prior.map(|r| r.domain), Some(DOMAIN_CARDINAL));
         let all = Options { plain: Plain::All };
-        let with =
-            learn_with(&text, &text, &runtime_windows, &runtime_format, &all).expect("learn");
+        let with = learn_with(
+            &crate::builder::english::LANGUAGE,
+            &text,
+            &text,
+            &runtime_windows,
+            &runtime_format,
+            &all,
+        )
+        .expect("learn");
         assert_eq!(with.learned.prior.map(|r| r.domain), Some(DOMAIN_PLAIN));
     }
 
@@ -1181,10 +1210,17 @@ mod tests {
     fn floor_sweep_scores_val_exact_sentences() {
         let text = fixture();
         let opts = Options::default();
-        let out =
-            learn_with(&text, &text, &runtime_windows, &runtime_format, &opts).expect("learn");
+        let out = learn_with(
+            &crate::builder::english::LANGUAGE,
+            &text,
+            &text,
+            &runtime_windows,
+            &runtime_format,
+            &opts,
+        )
+        .expect("learn");
         assert_eq!(out.floors.len(), FLOORS.len());
-        let base = build(&Learned::default()).expect("build");
+        let base = build(&crate::builder::english::LANGUAGE, &Learned::default()).expect("build");
         let (exact, total) = exact_sentences(&runtime_format, &base, &text);
         let at_1000 = out.floors.iter().find(|f| f.0 == 1000).map(|f| f.1);
         assert_eq!(at_1000, Some(exact as f64 / total as f64));
@@ -1214,7 +1250,15 @@ mod tests {
         use crate::types::{DOMAIN_IDENTIFIER, DOMAIN_TIME};
         let text = fixture();
         let all = Options { plain: Plain::All };
-        let out = learn_with(&text, &text, &runtime_windows, &runtime_format, &all).expect("learn");
+        let out = learn_with(
+            &crate::builder::english::LANGUAGE,
+            &text,
+            &text,
+            &runtime_windows,
+            &runtime_format,
+            &all,
+        )
+        .expect("learn");
         let l = &out.learned;
         assert!(l.prior.is_some());
         let w = |s: &str| ClassRef::Word(s.into());
@@ -1226,7 +1270,7 @@ mod tests {
         assert!(l.floor.is_some());
         let text_out = crate::builder::learned::write(l);
         let parsed = crate::builder::learned::parse(&text_out).expect("parse");
-        let b = crate::builder::build(&parsed).expect("build");
+        let b = crate::builder::build(&crate::builder::english::LANGUAGE, &parsed).expect("build");
         assert_eq!(
             b.tables.context.lookup(AT, crate::builder::english::THE).0,
             DOMAIN_TIME
@@ -1238,7 +1282,11 @@ mod tests {
 
     #[test]
     fn cue_tally_picks_informative_unknown_neighbours_and_merges_alike() {
-        let b = crate::builder::build(&crate::builder::learned::Learned::default()).expect("b");
+        let b = crate::builder::build(
+            &crate::builder::english::LANGUAGE,
+            &crate::builder::learned::Learned::default(),
+        )
+        .expect("b");
         let mut text = String::new();
         for _ in 0..40 {
             for w in ["zork", "zorp"] {
@@ -1292,7 +1340,11 @@ mod tests {
 
     #[test]
     fn cell_tally_matches_canonical_gold_and_counts_changes() {
-        let b = crate::builder::build(&crate::builder::learned::Learned::default()).expect("b");
+        let b = crate::builder::build(
+            &crate::builder::english::LANGUAGE,
+            &crate::builder::learned::Learned::default(),
+        )
+        .expect("b");
         let text =
             "S we have two thousand five\nT 2 3 CARDINAL 2,005\n\n".repeat(MIN_COUNT as usize);
         let mut tally = CellTally::default();

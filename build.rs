@@ -20,15 +20,16 @@ mod tables {
     pub mod lexicon;
     pub mod shape;
 
-    pub use bundle::{Aligned, MAX_CANONICAL, Tables};
+    pub use bundle::{Aligned, MAX_CANONICAL, MAX_ZONES, TEXT_LEN, Tables, Text, Vocab};
 }
 
 use std::path::PathBuf;
 
-const SOURCES: [&str; 16] = [
+const SOURCES: [&str; 17] = [
     "build.rs",
     "src/builder/mod.rs",
     "src/builder/english.rs",
+    "src/builder/language.rs",
     "src/builder/codegen.rs",
     "src/builder/learn.rs",
     "src/builder/learned.rs",

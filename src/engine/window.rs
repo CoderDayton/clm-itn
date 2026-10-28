@@ -4,10 +4,10 @@ use alloc::{format, vec};
 
 use crate::engine::Normalizer;
 use crate::engine::span::fold_left;
-use crate::tables::{Tables, WORDS_FIRST_WORDS};
+use crate::tables::{Tables, WORDS_FIRST_WORDS, text};
 use crate::types::{
     CLASS_UNKNOWN, CanonicalId, MAX_TOKENS, ROLE_AND, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE,
-    ROLE_OH, ROLE_ORDINAL, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting, TokenInfo, sense,
+    ROLE_OH, ROLE_ORDINAL, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting, TokenInfo, kind, name, sense,
 };
 
 const LINE_OUT: usize = 512;
@@ -65,10 +65,15 @@ struct Word<'a> {
     said: &'a str,
     /// Lexicon entry of `core`, handed to the engine so it is looked up once.
     info: TokenInfo,
+    /// Canonical ID of `core` itself: `info` reads a scale past billion as
+    /// "billion", this does not.
+    own: CanonicalId,
     /// `W_*` bits.
     flags: u16,
-    /// See `kind`.
+    /// `types::kind` of `core`, or the structural `K_LETTER`, `K_CLOCK_DIGITS`.
     kind: u8,
+    /// The power of ten of a scale word; zero for any other.
+    exp: u8,
 }
 
 const W_NUMERIC: u16 = 1;
@@ -88,6 +93,10 @@ const W_KEEP: u16 = 1 << 8;
 const W_BIG: u16 = 1 << 9;
 /// "thousand" and above.
 const W_SCALE: u16 = 1 << 10;
+/// "am", "pm" or the "m" of "a m".
+const W_MERIDIEM: u16 = 1 << 11;
+/// A word after which a month name is a verb.
+const W_SUBJECT: u16 = 1 << 12;
 
 impl Word<'_> {
     #[inline(always)]
@@ -149,9 +158,10 @@ fn bit(on: bool, bit: u16) -> u16 {
     u16::from(on) * bit
 }
 
+/// `own` is the canonical ID of `bare(core)`.
 fn tag_class<'a>(
     t: &Tables,
-    info: TokenInfo,
+    (info, own): (TokenInfo, CanonicalId),
     lead: &'a str,
     core: &'a str,
     trail: &'a str,
@@ -159,6 +169,14 @@ fn tag_class<'a>(
     let full = t.role_of[info.class as usize];
     let role = full & 0x0F;
     let b = bare(core);
+    let bits = t.sense[own as usize];
+    let (listed, aux) = (t.kind_of[own as usize], t.aux_of[own as usize]);
+    let k = if listed == 0 {
+        structural_kind(b)
+    } else {
+        listed
+    };
+    let exp = if k == kind::SCALE { aux } else { 0 };
     Word {
         gap: "",
         lead,
@@ -166,37 +184,74 @@ fn tag_class<'a>(
         trail,
         said: core,
         info,
+        own,
         flags: bit(full != 0, W_NUMERIC)
             | bit(
                 role != 0 && (t.suffix_roles | t.prefix_roles) >> role & 1 == 0,
                 W_VALUE,
             )
-            | bit(FILLERS.iter().any(|f| f.eq_ignore_ascii_case(b)), W_FILLER)
+            | bit(k == kind::FILLER, W_FILLER)
             | bit(
                 !b.is_empty() && b.bytes().all(|c| c.is_ascii_digit()),
                 W_DIGITS,
             )
             | bit(role == ROLE_DIGIT || role == ROLE_OH, W_DIGIT)
             | bit(role == ROLE_ORDINAL, W_ORDINAL)
-            | bit(role == ROLE_MSCALE && scale_exp(b) >= 12, W_BIG)
-            | bit(role == ROLE_SCALE || role == ROLE_MSCALE, W_SCALE),
-        kind: kind(b),
+            | bit(role == ROLE_MSCALE && exp >= 12, W_BIG)
+            | bit(role == ROLE_SCALE || role == ROLE_MSCALE, W_SCALE)
+            | bit(bits & sense::MERIDIEM != 0, W_MERIDIEM)
+            | bit(bits & sense::SUBJECT != 0, W_SUBJECT),
+        kind: k,
+        exp,
     }
 }
 
-/// The lexicon entry of `core`. Scales past billion read as "billion", which
-/// prints the spoken word ("5 trillion").
-fn lookup(t: &Tables, core: &str) -> TokenInfo {
+/// The lexicon entry of `core` and its own canonical ID. Scales past billion
+/// read as "billion", which prints the spoken word ("5 trillion").
+fn lookup_own(t: &Tables, core: &str) -> (TokenInfo, CanonicalId) {
     let info = t.lexicon.lookup(core.as_bytes());
-    if info.class == CLASS_UNKNOWN && scale_exp(core) >= 12 {
-        t.lexicon.lookup(b"billion")
+    let own = info.canonical;
+    let big = t.kind_of[own as usize] == kind::SCALE && t.aux_of[own as usize] >= 12;
+    if info.class == CLASS_UNKNOWN && big {
+        let billion = t.vocab.name(name::BILLION);
+        (t.lexicon.lookup(billion.as_bytes()), own)
     } else {
-        info
+        (info, own)
+    }
+}
+
+fn lookup(t: &Tables, core: &str) -> TokenInfo {
+    lookup_own(t, core).0
+}
+
+/// The kinds found from the spelling: a lone letter or "1" to "12".
+fn structural_kind(core: &str) -> u8 {
+    let c = core.as_bytes();
+    match c {
+        [l] if l.is_ascii_alphabetic() => K_LETTER,
+        [b'0'..=b'9', ..] if c.len() <= 2 && clock_digits(core).is_some() => K_CLOCK_DIGITS,
+        _ => 0,
     }
 }
 
 fn tag<'a>(t: &Tables, lead: &'a str, core: &'a str, trail: &'a str) -> Word<'a> {
-    tag_class(t, lookup(t, core), lead, core, trail)
+    let b = bare(core);
+    let found = if b.len() == core.len() {
+        lookup_own(t, core)
+    } else {
+        (lookup(t, core), lookup_own(t, b).1)
+    };
+    tag_class(t, found, lead, core, trail)
+}
+
+/// A word the language names, which the engine writes in place of a spoken form.
+fn tag_named<'a>(t: &'a Tables, lead: &'a str, slot: usize, trail: &'a str) -> Word<'a> {
+    tag(t, lead, t.vocab.name(slot), trail)
+}
+
+/// Whether `w` is the word the language names `slot`.
+fn named(t: &Tables, w: &Word, slot: usize) -> bool {
+    w.own == t.vocab.name_id[slot]
 }
 
 #[inline(always)]
@@ -213,19 +268,26 @@ fn split_word<'a>(token: &'a str, t: &Tables) -> Word<'a> {
     if (start == 0 && end == token.len()) || start == end {
         return tag(t, "", token, "");
     }
-    let info = lookup(t, &token[start..end]);
-    if info.class == CLASS_UNKNOWN {
-        return tag(t, "", token, "");
+    let found = lookup_own(t, &token[start..end]);
+    if found.0.class == CLASS_UNKNOWN {
+        // With no leading mark, `bare(token)` is the word looked up.
+        let (whole, whole_own) = lookup_own(t, token);
+        let own = if start == 0 { found.1 } else { whole_own };
+        return tag_class(t, (whole, own), "", token, "");
     }
-    tag_class(t, info, &token[..start], &token[start..end], &token[end..])
+    tag_class(t, found, &token[..start], &token[start..end], &token[end..])
 }
 
-fn meridiem(letter: &str, next: &str) -> Option<(&'static str, usize)> {
+/// "a m" spelled as two letters: the meridiem they stand for and the length
+/// of the second letter without its punctuation.
+fn meridiem<'a>(t: &'a Tables, letter: &str, next: &str) -> Option<(&'a str, usize)> {
+    let am = t.vocab.name(name::AM);
+    let (first, second) = am.split_at(am.chars().next()?.len_utf8());
     let m = next.trim_end_matches(trail_punct);
-    (letter.eq_ignore_ascii_case("a") && m.eq_ignore_ascii_case("m")).then_some(("am", m.len()))
+    (letter.eq_ignore_ascii_case(first) && m.eq_ignore_ascii_case(second)).then_some((am, m.len()))
 }
 
-fn join_meridiem(words: &mut Vec<Word<'_>>, t: &Tables) {
+fn join_meridiem<'a>(words: &mut Vec<Word<'a>>, t: &'a Tables) {
     let mut put = 0;
     let mut i = 0;
     while i < words.len() {
@@ -235,7 +297,7 @@ fn join_meridiem(words: &mut Vec<Word<'_>>, t: &Tables) {
             .then(|| words.get(i + 1))
             .flatten()
             .filter(|n| n.lead.is_empty())
-            .and_then(|n| meridiem(w.core, n.core).map(|(j, len)| (j, n.core, n.trail, len)));
+            .and_then(|n| meridiem(t, w.core, n.core).map(|(j, len)| (j, n.core, n.trail, len)));
         match joined {
             Some((core, next_core, next_trail, len)) => {
                 let trail = if next_trail.is_empty() {
@@ -262,33 +324,34 @@ fn join_meridiem(words: &mut Vec<Word<'_>>, t: &Tables) {
     words.truncate(put);
 }
 
-const ZONES: [&str; 11] = [
-    "EST", "EDT", "CST", "CDT", "MST", "MDT", "PST", "PDT", "GMT", "UTC", "BST",
-];
-
-fn zone(letters: [&str; 3]) -> Option<(&'static str, usize)> {
+/// Three single letters that spell a time zone code: the code and the length
+/// of the last letter without its punctuation.
+fn zone<'a>(t: &'a Tables, letters: [&str; 3]) -> Option<(&'a str, usize)> {
     let last = letters[2].trim_end_matches(trail_punct);
     let parts = [letters[0], letters[1], last];
     if parts.iter().any(|p| p.len() != 1) {
         return None;
     }
-    ZONES
+    t.vocab
+        .zones
         .iter()
+        .filter(|z| z[0] != 0)
         .find(|z| {
-            z.bytes()
+            z.iter()
                 .zip(parts)
-                .all(|(c, p)| p.as_bytes()[0].eq_ignore_ascii_case(&c))
+                .all(|(c, p)| p.as_bytes()[0].eq_ignore_ascii_case(c))
         })
-        .map(|z| (*z, last.len()))
+        .and_then(|z| core::str::from_utf8(z).ok())
+        .map(|z| (z, last.len()))
 }
 
-fn join_zone(words: &mut Vec<Word<'_>>, t: &Tables) {
+fn join_zone<'a>(words: &mut Vec<Word<'a>>, t: &'a Tables) {
     let mut put = 0;
     let mut i = 0;
     while i < words.len() {
         let after_time = put > 0 && {
             let p = &words[put - 1];
-            p.trail.is_empty() && (p.core == "am" || p.core == "pm" || p.core == "m" || p.numeric())
+            p.trail.is_empty() && (p.has(W_MERIDIEM) || p.numeric())
         };
         let joined = (after_time && i + 3 <= words.len())
             .then(|| &words[i..i + 3])
@@ -298,7 +361,7 @@ fn join_zone(words: &mut Vec<Word<'_>>, t: &Tables) {
                     && w[1].trail.is_empty()
             })
             .and_then(|w| {
-                zone([w[0].core, w[1].core, w[2].core])
+                zone(t, [w[0].core, w[1].core, w[2].core])
                     .map(|(z, len)| (z, w[2].core, w[2].trail, len))
             });
         match joined {
@@ -327,15 +390,12 @@ fn join_zone(words: &mut Vec<Word<'_>>, t: &Tables) {
     words.truncate(put);
 }
 
-fn drop_twelve(words: &mut Vec<Word<'_>>) {
-    let noon = |w: &Word| {
-        let b = bare(w.core);
-        w.lead.is_empty() && (b.eq_ignore_ascii_case("noon") || b.eq_ignore_ascii_case("midnight"))
-    };
+fn drop_twelve(words: &mut Vec<Word<'_>>, t: &Tables) {
+    let noon = |w: &Word| w.lead.is_empty() && w.kind == kind::NOON;
     let mut put = 0;
     for i in 0..words.len() {
         let w = &words[i];
-        let twelve = w.core.eq_ignore_ascii_case("twelve") && w.trail.is_empty();
+        let twelve = named(t, w, name::TWELVE) && w.trail.is_empty();
         if twelve && words.get(i + 1).is_some_and(noon) {
             words[i + 1].gap = words[i].gap;
             continue;
@@ -363,8 +423,6 @@ const COUNTING_ROLES: u16 = 1 << ROLE_DIGIT
     | 1 << ROLE_HUNDRED
     | 1 << ROLE_SCALE
     | 1 << ROLE_MSCALE;
-
-const FILLERS: [&str; 6] = ["uh", "um", "er", "ah", "uhm", "hmm"];
 
 fn bare(core: &str) -> &str {
     match core.as_bytes().last() {
@@ -430,7 +488,7 @@ fn guarded(t: &Tables, words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<(
             && i + 1 < n
             && num(i + 1)
             && !num(i)
-            && connector_start(words[i].core)
+            && t.sense[words[i].own as usize] & sense::RELATIVE != 0
             && let Some((from, to)) = relative_time(t, words, i)
         {
             mark(from, to);
@@ -536,17 +594,6 @@ fn word_sense(t: &Tables, words: &[Word], i: usize) -> Option<(usize, usize)> {
     (pronoun || group || next & sense::FRACTION != 0).then_some((i, i))
 }
 
-/// Whether `core` starts like a `sense::RELATIVE` word; skips most
-/// `relative_time` calls.
-fn connector_start(core: &str) -> bool {
-    match core.as_bytes() {
-        [a, b, ..] => matches!(
-            [a | 0x20, b | 0x20],
-            [b't', b'o'] | [b't', b'i'] | [b'p', b'a'] | [b'a', b'f']
-        ),
-        _ => false,
-    }
-}
 /// A relative time such as "ten to four" or "half past six", with the
 /// connector at `i`. It reads as a clock time or as a range or score, so the
 /// span from the minute word to the hour stays as spoken. It counts only
@@ -609,19 +656,10 @@ fn open(a: &Word, b: &Word) -> bool {
     a.trail.is_empty() && b.lead.is_empty()
 }
 
-fn is(w: &Word, s: &str) -> bool {
-    bare(w.core).eq_ignore_ascii_case(s)
+/// "hundred" or a scale word.
+fn scale_word(w: &Word) -> bool {
+    w.kind == K_HUNDRED || w.exp > 0
 }
-
-const SCALE_WORDS: [&str; 7] = [
-    "hundred",
-    "thousand",
-    "million",
-    "billion",
-    "trillion",
-    "quadrillion",
-    "quintillion",
-];
 
 const F_EXPAND: u8 = 1;
 const F_PHONE: u8 = 2;
@@ -630,43 +668,23 @@ const F_DOTS: u8 = 8;
 const F_LETTERS: u8 = 16;
 const F_VERBS: u8 = 32;
 
-const K_A: u8 = 1;
-const K_LETTER: u8 = 2;
-const K_OF: u8 = 3;
-const K_PER: u8 = 4;
-const K_DOT: u8 = 5;
-const K_DOUBLE: u8 = 6;
-const K_HUNDRED: u8 = 7;
-const K_STREET: u8 = 8;
-/// "may" or "march", which can be verbs.
-const K_MONTH_VERB: u8 = 9;
-/// "1" to "12" written as digits.
-const K_CLOCK_DIGITS: u8 = 10;
-const K_HUNDREDS: u8 = 11;
+const K_A: u8 = kind::A;
+const K_LETTER: u8 = kind::LETTER;
+const K_OF: u8 = kind::OF;
+const K_PER: u8 = kind::PER;
+const K_DOT: u8 = kind::DOT;
+const K_DOUBLE: u8 = kind::DOUBLE;
+const K_HUNDRED: u8 = kind::HUNDRED;
+const K_STREET: u8 = kind::STREET;
+const K_MONTH_VERB: u8 = kind::MONTH_VERB;
+const K_CLOCK_DIGITS: u8 = kind::CLOCK_DIGITS;
+const K_HUNDREDS: u8 = kind::HUNDREDS;
 
-const HOUR_WORDS: [&str; 12] = [
-    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
-    "twelve",
-];
-const TEEN_WORDS: [&str; 9] = [
-    "eleven",
-    "twelve",
-    "thirteen",
-    "fourteen",
-    "fifteen",
-    "sixteen",
-    "seventeen",
-    "eighteen",
-    "nineteen",
-];
-const CENTURIES: [&str; 9] = [
-    "1100s", "1200s", "1300s", "1400s", "1500s", "1600s", "1700s", "1800s", "1900s",
-];
-/// Words after which "may" and "march" are verbs.
-const VERB_SUBJECTS: [&str; 16] = [
-    "i", "you", "we", "they", "he", "she", "it", "who", "to", "will", "can", "could", "might",
-    "would", "should", "must",
-];
+/// The century a teen word starts: "eighteen hundreds" is the 1800s.
+fn century(t: &Tables, w: &Word) -> Option<usize> {
+    let value = t.value_of[w.info.canonical as usize];
+    (role(t, w) == ROLE_TEEN && (11..=19).contains(&value)).then(|| value as usize - 11)
+}
 
 /// `core` read as "1" to "12".
 fn clock_digits(core: &str) -> Option<usize> {
@@ -674,38 +692,9 @@ fn clock_digits(core: &str) -> Option<usize> {
     (!core.starts_with('0') && (1..=12).contains(&v)).then_some(v)
 }
 
-/// The few words the line passes look for, found once per word.
-fn kind(core: &str) -> u8 {
-    let eq = |s: &str| core.eq_ignore_ascii_case(s);
-    let any = |set: &[&str]| set.iter().any(|s| eq(s));
-    let c = core.as_bytes();
-    let Some(&first) = c.first() else {
-        return 0;
-    };
-    match (c.len(), first.to_ascii_lowercase()) {
-        (1, b'a') => K_A,
-        (1, l) if l.is_ascii_alphabetic() => K_LETTER,
-        (1 | 2, b'0'..=b'9') if clock_digits(core).is_some() => K_CLOCK_DIGITS,
-        (3, b'm') if eq("may") => K_MONTH_VERB,
-        (5, b'm') if eq("march") => K_MONTH_VERB,
-        (8, b'h') if eq("hundreds") => K_HUNDREDS,
-        (2, b'o') if eq("of") => K_OF,
-        (3, b'p') if eq("per") => K_PER,
-        (3, b'd') if eq("dot") => K_DOT,
-        (4, b'r' | b'l') if any(&["road", "lane"]) => K_STREET,
-        (5, b'd' | b'c' | b'p') if any(&["drive", "court", "place"]) => K_STREET,
-        (6, b'd' | b't') if any(&["double", "triple"]) => K_DOUBLE,
-        (6, b's' | b'a') if any(&["street", "avenue"]) => K_STREET,
-        (7, b'h') if eq("hundred") => K_HUNDRED,
-        (7, b'p' | b'h') if any(&["parkway", "highway"]) => K_STREET,
-        (9, b'b') if eq("boulevard") => K_STREET,
-        _ => 0,
-    }
-}
-
 /// Which of the rare line passes can apply, so a plain line pays for none of
 /// them. Each bit is a superset of its pass.
-fn features(words: &[Word]) -> u8 {
+fn features(words: &[Word], t: &Tables) -> u8 {
     let mut f = 0;
     let number = |w: Option<&Word>| w.is_some_and(|w| w.numeric() || w.all_digits());
     for (k, w) in words.iter().enumerate().filter(|(_, w)| w.kind != 0) {
@@ -713,18 +702,16 @@ fn features(words: &[Word]) -> u8 {
         let next = words.get(k + 1);
         let digit = |w: Option<&Word>| w.is_some_and(|w| w.digit());
         f |= match w.kind {
-            K_A if next.is_some_and(|n| SCALE_WORDS.iter().any(|s| is(n, s)) || unit(n)) => {
-                F_EXPAND
-            }
-            K_CLOCK_DIGITS if next.is_some_and(minutes) => F_EXPAND,
+            K_A if next.is_some_and(|n| scale_word(n) || unit(t, n)) => F_EXPAND,
+            K_CLOCK_DIGITS if next.is_some_and(|n| minutes(t, n)) => F_EXPAND,
             K_HUNDREDS if prev.is_some_and(|p| p.value()) => F_EXPAND,
-            K_MONTH_VERB if prev.is_some_and(|p| VERB_SUBJECTS.iter().any(|s| is(p, s))) => F_VERBS,
+            K_MONTH_VERB if prev.is_some_and(|p| p.has(W_SUBJECT)) => F_VERBS,
             K_LETTER if number(prev) || number(next) => F_LETTERS,
             K_OF if prev.is_some_and(|p| p.ordinal()) => F_CUTS,
             K_PER | K_DOUBLE => F_EXPAND,
             K_HUNDRED
-                if prev.is_some_and(|p| is(p, "twenty"))
-                    && next.is_some_and(|n| is(n, "hours")) =>
+                if prev.is_some_and(|p| named(t, p, name::TWENTY))
+                    && next.is_some_and(|n| named(t, n, name::HOURS)) =>
             {
                 F_EXPAND
             }
@@ -738,36 +725,31 @@ fn features(words: &[Word]) -> u8 {
 }
 
 /// A unit or currency word. "a hundred percent" is an idiom, so not percent.
-fn unit(w: &Word) -> bool {
-    w.numeric() && !w.value() && !is(w, "percent")
+fn unit(t: &Tables, w: &Word) -> bool {
+    w.numeric() && !w.value() && !named(t, w, name::PERCENT)
 }
 
 /// A word that can be the minutes of "5 thirty": not a digit or a scale.
-fn minutes(w: &Word) -> bool {
-    w.value()
-        && (!w.digit() || is(w, "oh"))
-        && !is(w, "and")
-        && !SCALE_WORDS.iter().any(|s| is(w, s))
+fn minutes(t: &Tables, w: &Word) -> bool {
+    w.value() && (!w.digit() || named(t, w, name::OH)) && !named(t, w, name::AND) && !scale_word(w)
 }
 
 /// "we march five miles", "it may first be noticed": after a subject or a
 /// modal, "may" and "march" are verbs. "may first" and "may one day" are
 /// adverbs, not dates.
-fn verb_months(words: &mut [Word]) {
+fn verb_months(words: &mut [Word], t: &Tables) {
     for k in 1..words.len() {
         let w = words[k];
-        let verb = w.kind == K_MONTH_VERB
-            && open(&words[k - 1], &w)
-            && VERB_SUBJECTS.iter().any(|s| is(&words[k - 1], s));
+        let verb = w.kind == K_MONTH_VERB && open(&words[k - 1], &w) && words[k - 1].has(W_SUBJECT);
         if !verb {
             continue;
         }
         words[k].flags |= W_KEEP;
-        if is(&w, "may")
+        if t.aux_of[w.own as usize] == 1
             && let Some(n) = words.get_mut(k + 1)
             && w.trail.is_empty()
             && n.lead.is_empty()
-            && (is(n, "first") || is(n, "one"))
+            && (named(t, n, name::FIRST) || named(t, n, name::ONE))
         {
             n.flags |= W_KEEP;
         }
@@ -777,7 +759,7 @@ fn verb_months(words: &mut [Word]) {
 /// Rewrites spoken forms the tables do not read: "twelve per cent",
 /// "double oh seven", "a hundred and twenty" (but not "a hundred people"),
 /// "a dollar fifty", "5 thirty" and "eighteen hundreds".
-fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> {
+fn expand<'a>(words: Vec<Word<'a>>, t: &'a Tables, percent: bool) -> Vec<Word<'a>> {
     let mut out: Vec<Word<'a>> = Vec::with_capacity(words.len() + 2);
     let mut i = 0;
     while i < words.len() {
@@ -785,37 +767,35 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
         let at = |k: usize| words.get(k).filter(|x| open(&words[k - 1], x)).copied();
         let next = at(i + 1);
         let after = next.and(at(i + 2));
-        let small_scale = next.is_some_and(|n| is(&n, "hundred") || is(&n, "thousand"));
+        let small_scale = next.is_some_and(|n| n.kind == K_HUNDRED || named(t, &n, name::THOUSAND));
         let counts_on = after.is_some_and(|a| {
-            (a.value() && !SCALE_WORDS.iter().any(|s| is(&a, s)))
-                || (is(&a, "and") && at(i + 3).is_some_and(|b| b.value()))
-                || (small_scale && unit(&a))
+            (a.value() && !scale_word(&a))
+                || (named(t, &a, name::AND) && at(i + 3).is_some_and(|b| b.value()))
+                || (small_scale && unit(t, &a))
         });
-        let priced = next.is_some_and(|n| unit(&n)) && after.is_some_and(|a| a.value());
-        let century = next
-            .filter(|n| n.kind == K_HUNDREDS)
-            .and(TEEN_WORDS.iter().position(|s| is(&w, s)));
+        let priced = next.is_some_and(|n| unit(t, &n)) && after.is_some_and(|a| a.value());
+        let century = next.filter(|n| n.kind == K_HUNDREDS).and(century(t, &w));
         let after_number = out.last().is_some_and(|p| p.value() && p.trail.is_empty());
         match next {
-            Some(n) if percent && is(&w, "per") && is(&n, "cent") && after_number => {
-                let joined = tag(t, w.lead, "percent", n.trail);
+            Some(n) if percent && w.kind == K_PER && named(t, &n, name::CENT) && after_number => {
+                let joined = tag_named(t, w.lead, name::PERCENT, n.trail);
                 out.push(Word {
-                    said: "per cent",
+                    said: t.vocab.name(name::PER_CENT),
                     gap: w.gap,
                     ..joined
                 });
                 i += 2;
             }
             Some(n)
-                if is(&w, "twenty")
-                    && is(&n, "hundred")
-                    && after.is_some_and(|a| is(&a, "hours")) =>
+                if named(t, &w, name::TWENTY)
+                    && n.kind == K_HUNDRED
+                    && after.is_some_and(|a| named(t, &a, name::HOURS)) =>
             {
                 push_two_thousand(&mut out, t, &w, &n);
                 i += 2;
             }
-            Some(n) if n.digit() && (is(&w, "double") || is(&w, "triple")) => {
-                let copies = if is(&w, "double") { 1 } else { 2 };
+            Some(n) if n.digit() && w.kind == K_DOUBLE => {
+                let copies = t.aux_of[w.own as usize];
                 for k in 0..copies {
                     out.push(Word {
                         gap: if k == 0 { w.gap } else { "" },
@@ -828,7 +808,7 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
                 i += 1;
             }
             Some(n) if century.is_some() => {
-                let c = CENTURIES[century.unwrap_or_default()];
+                let c = text(&t.vocab.centuries[century.unwrap_or_default()]);
                 out.push(Word {
                     said: c,
                     gap: w.gap,
@@ -840,9 +820,9 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
                 if w.kind == K_CLOCK_DIGITS
                     && let Some(h) = clock_digits(w.core)
                     && w.trail.is_empty()
-                    && minutes(&n) =>
+                    && minutes(t, &n) =>
             {
-                let hour = HOUR_WORDS[h - 1];
+                let hour = text(&t.vocab.hours[h - 1]);
                 out.push(Word {
                     said: w.core,
                     gap: w.gap,
@@ -850,11 +830,8 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
                 });
                 i += 1;
             }
-            Some(n)
-                if is(&w, "a")
-                    && ((SCALE_WORDS.iter().any(|s| is(&n, s)) && counts_on) || priced) =>
-            {
-                let one = tag(t, w.lead, "one", w.trail);
+            Some(n) if w.kind == K_A && ((scale_word(&n) && counts_on) || priced) => {
+                let one = tag_named(t, w.lead, name::ONE, w.trail);
                 out.push(Word {
                     said: w.core,
                     gap: w.gap,
@@ -874,19 +851,19 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &Tables, percent: bool) -> Vec<Word<'a>> 
 /// "twenty hundred" on the 24-hour clock is 2000: reads as "two thousand".
 fn push_two_thousand<'a>(
     out: &mut Vec<Word<'a>>,
-    t: &Tables,
+    t: &'a Tables,
     twenty: &Word<'a>,
     hundred: &Word<'a>,
 ) {
     out.push(Word {
         said: twenty.core,
         gap: twenty.gap,
-        ..tag(t, twenty.lead, "two", "")
+        ..tag_named(t, twenty.lead, name::TWO, "")
     });
     out.push(Word {
         said: hundred.core,
         gap: hundred.gap,
-        ..tag(t, "", "thousand", hundred.trail)
+        ..tag_named(t, "", name::THOUSAND, hundred.trail)
     });
 }
 
@@ -894,10 +871,10 @@ const MIN_PHONE_DIGITS: usize = 7;
 
 /// "one eight hundred two five five ..." in a run of seven or more digit
 /// words: "hundred" stands for two zeros.
-fn phone_hundreds<'a>(words: Vec<Word<'a>>, t: &Tables) -> Vec<Word<'a>> {
+fn phone_hundreds<'a>(words: Vec<Word<'a>>, t: &'a Tables) -> Vec<Word<'a>> {
     let n = words.len();
     let hundred = |k: usize| {
-        is(&words[k], "hundred")
+        words[k].kind == K_HUNDRED
             && k > 0
             && k + 1 < n
             && words[k - 1].digit()
@@ -926,7 +903,7 @@ fn phone_hundreds<'a>(words: Vec<Word<'a>>, t: &Tables) -> Vec<Word<'a>> {
     let mut out = Vec::with_capacity(n + 2);
     for (w, z) in words.into_iter().zip(zeros) {
         if z {
-            let oh = tag(t, "", "oh", "");
+            let oh = tag_named(t, "", name::OH, "");
             out.push(Word {
                 said: w.core,
                 gap: w.gap,
@@ -940,26 +917,11 @@ fn phone_hundreds<'a>(words: Vec<Word<'a>>, t: &Tables) -> Vec<Word<'a>> {
     out
 }
 
-const MONTHS: [&str; 12] = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-];
-
 /// Where a segment must end, and which lone ordinals are written as digits.
 /// A cut keeps a word from being context for the number next to it: "at"
 /// before a street number is not a time cue. "the fourth of july" is a date
 /// even though "the fourth" alone stays a word, so its month is capitalized.
-fn cuts(words: &mut [Word]) {
+fn cuts<'a>(words: &mut [Word<'a>], t: &'a Tables) {
     let n = words.len();
     let linked = |words: &[Word], k: usize| k + 1 < n && open(&words[k], &words[k + 1]);
     for i in 0..n {
@@ -976,8 +938,11 @@ fn cuts(words: &mut [Word]) {
                 words[i - 1].flags |= W_CUT;
             }
         }
-        let month = (i + 2 < n && words[i].ordinal() && is(&words[i + 1], "of"))
-            .then(|| MONTHS.iter().copied().find(|m| is(&words[i + 2], m)))
+        let month = (i + 2 < n && words[i].ordinal() && words[i + 1].kind == K_OF)
+            .then(|| {
+                let name = bare(words[i + 2].core);
+                (t.vocab.months.iter().map(|m| text(m))).find(|m| m.eq_ignore_ascii_case(name))
+            })
             .flatten()
             .filter(|_| linked(words, i) && linked(words, i + 1));
         if let Some(m) = month {
@@ -998,13 +963,12 @@ fn cuts(words: &mut [Word]) {
 
 /// "nineteen hundred" closing a clause or before "hours" is a year or a
 /// clock time, so it takes no comma; before a noun it is a count.
-fn bare_hundreds(segment: &[Word], next: Option<&Word>) -> bool {
+fn bare_hundreds(t: &Tables, segment: &[Word], next: Option<&Word>) -> bool {
     if let [rest @ .., hours] = segment
-        && hours.core.len() == 5
-        && is(hours, "hours")
+        && named(t, hours, name::HOURS)
         && rest.last().is_some_and(|h| h.trail.is_empty())
     {
-        return bare_hundreds(rest, None);
+        return bare_hundreds(t, rest, None);
     }
     let Some(last) = segment.last() else {
         return false;
@@ -1019,19 +983,26 @@ fn bare_hundreds(segment: &[Word], next: Option<&Word>) -> bool {
     };
     let tail = &segment[h + 1..];
     let tail_ok = tail.is_empty()
-        || (tail.len() >= 2 && is(&tail[0], "and") && tail[1..].iter().all(|w| w.value()));
+        || (tail.len() >= 2
+            && named(t, &tail[0], name::AND)
+            && tail[1..].iter().all(|w| w.value()));
     let x = h.checked_sub(1).map(|k| &segment[k]);
     // "twenty one hundred" is 2100 on the 24-hour clock, but any other tens
     // word before a digit is a larger count.
     let clock = h >= 2
-        && is(&segment[h - 2], "twenty")
-        && matches!(bare(segment[h - 1].core), "one" | "two" | "three")
+        && named(t, &segment[h - 2], name::TWENTY)
+        && small_digit(t, &segment[h - 1])
         && !(h >= 3 && segment[h - 3].value());
     let lead = h >= 2 && segment[h - 2].value() && !clock;
     tail_ok
         && x.is_some_and(|x| x.value() && (!x.digit() || clock))
         && !lead
-        && (!last.trail.is_empty() || next.is_none_or(|n| is(n, "hours")))
+        && (!last.trail.is_empty() || next.is_none_or(|n| named(t, n, name::HOURS)))
+}
+
+/// A digit word for 1, 2 or 3: the hours that follow "twenty" on the 24-hour clock.
+fn small_digit(t: &Tables, w: &Word) -> bool {
+    role(t, w) == ROLE_DIGIT && (1..=3).contains(&t.value_of[w.info.canonical as usize])
 }
 
 /// Drops the comma from the last "1,900" in `out[body..]`.
@@ -1049,12 +1020,13 @@ fn ungroup_last(out: &mut String, body: usize) {
 }
 
 /// "192 dot 168 dot 1" -> "192.168.1".
-fn join_dots(out: &mut String, begin: usize) {
+fn join_dots(out: &mut String, begin: usize, t: &Tables) {
     let text = out.split_off(begin);
     let toks = gapped(&text);
     let digit = |c: char| c.is_ascii_digit();
+    let dot = t.vocab.name(name::DOT);
     let glue = |k: usize| {
-        toks[k].1 == "dot"
+        toks[k].1 == dot
             && k > 0
             && k + 1 < toks.len()
             && toks[k - 1].1.ends_with(digit)
@@ -1090,7 +1062,7 @@ fn gapped(text: &str) -> Vec<(&str, &str)> {
 /// Joins a lone letter to the number before or after it: "4 k" -> "4k",
 /// "gate b 12" -> "b12". "a" never joins, "i" joins only before a number,
 /// and a letter in a spelled run ("d e 5") stays apart.
-fn join_letters(out: &mut String, begin: usize) {
+fn join_letters(out: &mut String, begin: usize, t: &Tables) {
     let text = out.split_off(begin);
     let toks = gapped(&text);
     let letter = |k: usize| {
@@ -1102,13 +1074,15 @@ fn join_letters(out: &mut String, begin: usize) {
         letter(k).is_some() && (k == 0 || letter(k - 1).is_none()) && letter(k + 1).is_none()
     };
     let digit = |c: char| c.is_ascii_digit();
+    let allowed = |mask: u32, l: u8| mask >> (l - b'a') & 1 == 0;
     let joins = |k: usize| {
         let (prev, tok) = (toks[k - 1].1, toks[k].1);
-        let after_number =
-            prev.ends_with(digit) && lone(k) && letter(k).is_some_and(|l| l != b'a' && l != b'i');
+        let after_number = prev.ends_with(digit)
+            && lone(k)
+            && letter(k).is_some_and(|l| allowed(t.vocab.not_after_number, l));
         let before_number = prev.len() == 1
             && lone(k - 1)
-            && letter(k - 1).is_some_and(|l| l != b'a')
+            && letter(k - 1).is_some_and(|l| allowed(t.vocab.not_before_number, l))
             && tok.starts_with(digit);
         after_number || before_number
     };
@@ -1234,7 +1208,7 @@ fn anchor(w: &Word) -> bool {
         || w.filler()
         || w.kind == K_MONTH_VERB
         || w.core.bytes().any(|b| b.is_ascii_digit())
-        || ["am", "pm", "m"].iter().any(|m| is(w, m))
+        || w.has(W_MERIDIEM)
 }
 
 /// Reads words from `line` after byte `from` up to its first tab or line
@@ -1280,7 +1254,7 @@ fn tokenize<'a, const BATCHED: bool>(
 /// Formats a line with no tabs or line breaks, given its words, and returns
 /// the word list for reuse. Words before `resume` are already written.
 fn format_piece<'a>(
-    engine: &Normalizer,
+    engine: &Normalizer<'a>,
     line: &'a str,
     words: Vec<Word<'a>>,
     end: usize,
@@ -1340,7 +1314,7 @@ struct Batch {
 /// is no cut. `raw` is scratch.
 #[inline(never)]
 fn format_batch<'a>(
-    engine: &Normalizer,
+    engine: &Normalizer<'a>,
     line: &'a str,
     words: &mut Vec<Word<'a>>,
     raw: &mut Vec<Word<'a>>,
@@ -1450,7 +1424,7 @@ fn batch_cut(t: &Tables, words: &[Word], piece: Piece, skip: usize, least: usize
 /// Runs the line passes on a line's words.
 #[inline(always)]
 fn prepare<'a>(
-    engine: &Normalizer,
+    engine: &Normalizer<'a>,
     line: &'a str,
     mut words: Vec<Word<'a>>,
     ragged: bool,
@@ -1461,21 +1435,21 @@ fn prepare<'a>(
         join_zone(&mut words, t);
     }
     if engine.is_on(Setting::Noon) {
-        drop_twelve(&mut words);
+        drop_twelve(&mut words, t);
     }
-    let mut f = features(&words);
+    let mut f = features(&words, t);
     if f & F_VERBS != 0 {
-        verb_months(&mut words);
+        verb_months(&mut words, t);
     }
     if f & F_EXPAND != 0 {
         words = expand(words, t, engine.is_on(Setting::Percent));
-        f = features(&words);
+        f = features(&words, t);
     }
     if f & F_PHONE != 0 {
         words = phone_hundreds(words, t);
     }
     if f & F_CUTS != 0 {
-        cuts(&mut words);
+        cuts(&mut words, t);
     }
     let counting = |core: &str| {
         let role = t.role_of[lookup(t, core).class as usize] & 0x0F;
@@ -1539,7 +1513,7 @@ fn emit(
                 out,
                 &mut scratch,
             );
-            if bare_hundreds(segment, all.get(i + 1)) {
+            if bare_hundreds(engine.tables, segment, all.get(i + 1)) {
                 ungroup_last(out, body);
             }
         }
@@ -1547,10 +1521,10 @@ fn emit(
         start = i + 1;
     }
     if f & F_DOTS != 0 {
-        join_dots(out, begin);
+        join_dots(out, begin, engine.tables);
     }
     if f & F_LETTERS != 0 && engine.is_on(Setting::Letters) {
-        join_letters(out, begin);
+        join_letters(out, begin, engine.tables);
     }
 }
 
@@ -1619,7 +1593,7 @@ fn final_and(engine: &Normalizer, after: &[Word], prev: &Word) -> bool {
     let p = if role(t, prev) == ROLE_HUNDRED {
         2
     } else {
-        scale_exp(prev.core)
+        u32::from(prev.exp)
     };
     let mut group = 0u64;
     let mut len = 0;
@@ -1633,7 +1607,7 @@ fn final_and(engine: &Normalizer, after: &[Word], prev: &Word) -> bool {
         }
         len += 1;
     }
-    let next_scale = after.get(len).map_or(0, |w| scale_exp(w.core));
+    let next_scale = after.get(len).map_or(0, |w| u32::from(w.exp));
     p > 0 && len > 0 && group < 10u64.pow(p) && (p == 2 || next_scale < p)
 }
 
@@ -1648,7 +1622,7 @@ fn lead_value(engine: &Normalizer, words: &[Word]) -> Option<u128> {
     };
     for w in words {
         let v = u128::from(engine.value(w.info.canonical));
-        let exp = scale_exp(w.core);
+        let exp = u32::from(w.exp);
         match role(t, w) {
             ROLE_DIGIT | ROLE_TEEN | ROLE_TENS | ROLE_OH => cur = add(cur, v)?,
             ROLE_HUNDRED => cur = cur.max(1) * 100,
@@ -1677,12 +1651,12 @@ fn lead_value(engine: &Normalizer, words: &[Word]) -> Option<u128> {
 
 /// A scale word right after a number in rendered text: its exponent and the
 /// bytes it spans with its space.
-fn scale_after(rest: &str) -> Option<(u32, usize)> {
+fn scale_after(t: &Tables, rest: &str) -> Option<(u32, usize)> {
     let word = rest.strip_prefix(' ')?;
     let end = word
         .find(|c: char| !c.is_ascii_alphabetic())
         .unwrap_or(word.len());
-    let exp = scale_exp(&word[..end]);
+    let exp = scale_exp(t, &word[..end]);
     (exp > 0).then_some((exp, 1 + end))
 }
 
@@ -1710,12 +1684,12 @@ fn splice(
             let n = frac
                 .find(|c: char| !c.is_ascii_digit())
                 .unwrap_or(frac.len());
-            if scale_after(&frac[n..]).is_some() {
+            if scale_after(engine.tables, &frac[n..]).is_some() {
                 return None;
             }
         }
         _ => {
-            if let Some((exp, n)) = scale_after(rest) {
+            if let Some((exp, n)) = scale_after(engine.tables, rest) {
                 digits.push_str(&"0".repeat(exp as usize));
                 b += n;
             }
@@ -1758,7 +1732,7 @@ fn push_regrouped<'a>(
     let mut run = span[a..b].to_vec();
     elide_and(&mut run, engine, piece.text, 0);
     let group_next = |i: usize| run.get(i + 1).is_some_and(|w| starts_group(t, w));
-    let scale = |i: usize| scale_exp(run[i].core) != 0 && group_next(i);
+    let scale = |i: usize| run[i].exp != 0 && group_next(i);
     let pieces = split_run(0, run.len(), &scale, &|_| false);
     let Some(text) = pieces
         .filter(|p| p.len() > 1)
@@ -1879,22 +1853,14 @@ fn counting_list(words: &[Word], i: usize) -> bool {
     lone(i) && ((i > 0 && lone(i - 1)) || (i + 1 < n && lone(i + 1)))
 }
 
-fn scale_exp(word: &str) -> u32 {
-    const SCALES: [(&str, u32); 6] = [
-        ("thousand", 3),
-        ("million", 6),
-        ("billion", 9),
-        ("trillion", 12),
-        ("quadrillion", 15),
-        ("quintillion", 18),
-    ];
-    if !matches!(word.len(), 7 | 8 | 11) {
-        return 0;
+/// The power of ten `word` stands for when it is a scale word, else zero.
+fn scale_exp(t: &Tables, word: &str) -> u32 {
+    let own = lookup_own(t, word).1 as usize;
+    if t.kind_of[own] == kind::SCALE {
+        u32::from(t.aux_of[own])
+    } else {
+        0
     }
-    SCALES
-        .iter()
-        .find(|(s, _)| s.eq_ignore_ascii_case(word))
-        .map_or(0, |&(_, e)| e)
 }
 
 struct Scratch {
@@ -1957,11 +1923,11 @@ fn render_run(
     let mut pieces = Vec::with_capacity(run.len());
     let (last, higher) = run.split_last()?;
     for w in higher {
-        let digits = piece_digits(render(engine, words, w, buf)?)?;
-        pieces.push((digits, scale_exp(words[w.end - 1].core)));
+        let digits = piece_digits(engine.tables, render(engine, words, w, buf)?)?;
+        pieces.push((digits, u32::from(words[w.end - 1].exp)));
     }
     let text = render(engine, words, last, buf)?;
-    match piece_digits(text) {
+    match piece_digits(engine.tables, text) {
         Some(digits) => {
             pieces.push((digits, 0));
             stitch(&pieces).map(|n| group_thousands(&n))
@@ -2023,7 +1989,7 @@ fn plan(t: &Tables, piece: Piece, words: &[Word], windows: &mut WindowBuf) {
         windows,
         words.len(),
         |i| words[i].numeric(),
-        |i| scale_exp(words[i].core) != 0 && group_next(i),
+        |i| words[i].exp != 0 && group_next(i),
         |i| piece.seen & W_BIG != 0 && words[i].has(W_BIG) && group_next(i),
         |i| words[i].digit(),
         |i| {
@@ -2149,10 +2115,10 @@ fn split_run(
     Some(pieces)
 }
 
-fn piece_digits(text: &str) -> Option<String> {
+fn piece_digits(t: &Tables, text: &str) -> Option<String> {
     let (grouped, zeros) = match text.split_once(' ') {
         None => (text, 0),
-        Some((d, scale)) => match scale_exp(scale) {
+        Some((d, scale)) => match scale_exp(t, scale) {
             0 => return None,
             e => (d, e as usize),
         },
@@ -2483,7 +2449,7 @@ mod tests {
             ("twenty twenty", "2020"),
             ("in twenty twenty five", "in 2025"),
             ("twenty five hours", "25 hours"),
-            ("three hours", "3 hours"),
+            ("three hours", "three hours"),
             ("it took twenty three hours", "it took 23 hours"),
         ]);
     }
@@ -2614,15 +2580,21 @@ mod tests {
 
     #[test]
     fn piece_digits_accepts_digits_and_digits_with_a_scale_word() {
-        assert_eq!(piece_digits("72961").as_deref(), Some("72961"));
-        assert_eq!(piece_digits("999 million").as_deref(), Some("999000000"));
-        assert_eq!(piece_digits("12 thousand").as_deref(), Some("12000"));
-        assert_eq!(piece_digits("9 trillion").as_deref(), Some("9000000000000"));
-        assert_eq!(scale_exp("trillion"), 12);
-        assert_eq!(piece_digits("5.2 million"), None);
-        assert_eq!(piece_digits("$925"), None);
-        assert_eq!(piece_digits("one billion"), None);
-        assert_eq!(piece_digits(""), None);
+        let t = crate::tables::english();
+        assert_eq!(piece_digits(t, "72961").as_deref(), Some("72961"));
+        assert_eq!(piece_digits(t, "999 million").as_deref(), Some("999000000"));
+        assert_eq!(piece_digits(t, "12 thousand").as_deref(), Some("12000"));
+        assert_eq!(
+            piece_digits(t, "9 trillion").as_deref(),
+            Some("9000000000000")
+        );
+        assert_eq!(scale_exp(t, "trillion"), 12);
+        assert_eq!(scale_exp(t, "Quintillion"), 18);
+        assert_eq!(scale_exp(t, "hundred"), 0);
+        assert_eq!(piece_digits(t, "5.2 million"), None);
+        assert_eq!(piece_digits(t, "$925"), None);
+        assert_eq!(piece_digits(t, "one billion"), None);
+        assert_eq!(piece_digits(t, ""), None);
     }
 
     #[test]

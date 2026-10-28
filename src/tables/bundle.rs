@@ -6,7 +6,7 @@ use crate::tables::lexicon::{self, Lexicon};
 use crate::tables::shape::{self, ShapeTable};
 use crate::types::{
     CELL_COUNT, CandidateId, CanonicalId, ClassId, DOMAIN_COUNT, MAX_IDIOM_LEN, MAX_IDIOMS,
-    MAX_LEFT_FOLDS, Role, SHAPE_COUNT, SettingBits,
+    MAX_LEFT_FOLDS, Role, SHAPE_COUNT, SettingBits, name,
 };
 
 pub const MAX_CANONICAL: usize = 4096;
@@ -32,6 +32,63 @@ impl<T> DerefMut for Aligned<T> {
     }
 }
 
+/// Longest word or phrase in a [`Vocab`] text slot.
+pub const TEXT_LEN: usize = 16;
+/// Rows in `Vocab::zones`.
+pub const MAX_ZONES: usize = 16;
+/// Text slots in `Vocab::months`.
+pub const MONTHS: usize = 12;
+/// Text slots in `Vocab::hours`: the words for "1" to "12".
+pub const HOURS: usize = 12;
+/// Text slots in `Vocab::centuries`: "eleven" to "nineteen" hundreds.
+pub const CENTURIES: usize = 9;
+
+pub type Text = [u8; TEXT_LEN];
+
+/// The text of a slot, which ends at its first zero byte.
+pub fn text(slot: &[u8]) -> &str {
+    let len = slot.iter().position(|&b| b == 0).unwrap_or(slot.len());
+    core::str::from_utf8(&slot[..len]).unwrap_or_default()
+}
+
+/// The words and spellings of a language that the line passes read or write.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Vocab {
+    /// `types::name` slots.
+    pub names: [Text; name::COUNT],
+    /// Canonical ID of each name; zero for a phrase.
+    pub name_id: [CanonicalId; name::COUNT],
+    /// Month names as written in a date.
+    pub months: [Text; MONTHS],
+    /// The words for "1" to "12".
+    pub hours: [Text; HOURS],
+    /// The written form of "eleven hundreds" to "nineteen hundreds".
+    pub centuries: [Text; CENTURIES],
+    /// Time zone codes. A row of zeros is unused.
+    pub zones: [[u8; 3]; MAX_ZONES],
+    /// Letters (bit 0 is "a") that never join to the number before them.
+    pub not_after_number: u32,
+    /// Letters that never join to the number after them.
+    pub not_before_number: u32,
+}
+
+impl Vocab {
+    pub const EMPTY: Vocab = Vocab {
+        names: [[0; TEXT_LEN]; name::COUNT],
+        name_id: [0; name::COUNT],
+        months: [[0; TEXT_LEN]; MONTHS],
+        hours: [[0; TEXT_LEN]; HOURS],
+        centuries: [[0; TEXT_LEN]; CENTURIES],
+        zones: [[0; 3]; MAX_ZONES],
+        not_after_number: 0,
+        not_before_number: 0,
+    };
+
+    pub fn name(&self, slot: usize) -> &str {
+        text(&self.names[slot])
+    }
+}
+
 #[derive(PartialEq, Eq)]
 pub struct Tables {
     pub lexicon: Lexicon,
@@ -48,6 +105,10 @@ pub struct Tables {
     pub plural: Aligned<[u64; WORDS_FIRST_WORDS]>,
     /// `types::sense` bits of each word, by canonical ID.
     pub sense: Aligned<[u32; MAX_CANONICAL]>,
+    /// `types::kind` of each word, by canonical ID; zero for most.
+    pub kind_of: Aligned<[u8; MAX_CANONICAL]>,
+    /// What the word's kind carries (a scale's power of ten), by canonical ID.
+    pub aux_of: Aligned<[u8; MAX_CANONICAL]>,
     pub starts: Aligned<[u64; 4]>,
     pub per_stop: Aligned<[u64; 4]>,
     pub per_units: Aligned<[u64; 4]>,
@@ -75,6 +136,7 @@ pub struct Tables {
     /// Phrases whose number words stay words ("cloud nine"), as canonical
     /// IDs. A row ends at its first zero.
     pub idioms: [[CanonicalId; MAX_IDIOM_LEN]; MAX_IDIOMS],
+    pub vocab: Vocab,
 }
 
 impl Tables {
@@ -97,6 +159,8 @@ impl Tables {
         words_first: Aligned([0; WORDS_FIRST_WORDS]),
         plural: Aligned([0; WORDS_FIRST_WORDS]),
         sense: Aligned([0; MAX_CANONICAL]),
+        kind_of: Aligned([0; MAX_CANONICAL]),
+        aux_of: Aligned([0; MAX_CANONICAL]),
         starts: Aligned([0; 4]),
         per_stop: Aligned([0; 4]),
         per_units: Aligned([0; 4]),
@@ -112,6 +176,7 @@ impl Tables {
         lead_skip_roles: 0,
         left_folds: [[0; 3]; MAX_LEFT_FOLDS],
         idioms: [[0; MAX_IDIOM_LEN]; MAX_IDIOMS],
+        vocab: Vocab::EMPTY,
     };
 
     #[cfg(not(clm_no_std))]
@@ -151,6 +216,8 @@ mod tests {
             offset_of!(Tables, words_first),
             offset_of!(Tables, plural),
             offset_of!(Tables, sense),
+            offset_of!(Tables, kind_of),
+            offset_of!(Tables, aux_of),
             offset_of!(Tables, starts),
             offset_of!(Tables, per_stop),
             offset_of!(Tables, per_units),

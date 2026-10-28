@@ -1,5 +1,6 @@
 pub mod codegen;
 pub mod english;
+pub mod language;
 pub mod learn;
 pub mod learned;
 
@@ -11,14 +12,17 @@ use crate::tables::cell::{pack, unpack};
 use crate::tables::context::{ContextLut, pack_entry};
 use crate::tables::lexicon::{self, Lexicon};
 use crate::tables::shape::{ShapeBuildError, ShapeTable, shape_key};
-use crate::tables::{MAX_CANONICAL, Tables};
+use crate::tables::{MAX_CANONICAL, MAX_ZONES, TEXT_LEN, Tables, Text};
 use crate::types::{
     CANDIDATE_NONE, CLASS_BOUNDARY, CLASS_UNKNOWN, CandidateId, CanonicalId, CellIndex, ClassId,
     DOMAIN_CARDINAL, DOMAIN_CENTS, DOMAIN_COUNT, DOMAIN_IDENTIFIER, DOMAIN_MEASURE,
     DOMAIN_MEASURE_POWER, DOMAIN_MEASURE_PREFIX, DOMAIN_MONEY, DOMAIN_PERCENT, DOMAIN_TIME,
-    DomainId, MAX_IDIOM_LEN, MAX_IDIOMS, MAX_TOKENS, ROLE_NONE, Role, SHAPE_COUNT, ShapeId,
-    cell_domain, cell_index, cell_shape, sense,
+    DomainId, MAX_IDIOM_LEN, MAX_IDIOMS, MAX_TOKENS, ROLE_AMPM, ROLE_AND, ROLE_CURRENCY,
+    ROLE_DIGIT, ROLE_HUNDRED, ROLE_MER, ROLE_MSCALE, ROLE_NONE, ROLE_OH, ROLE_ORDINAL, ROLE_POINT,
+    ROLE_SCALE, ROLE_TEEN, ROLE_TENS, ROLE_UNIT, Role, SHAPE_COUNT, ShapeId, cell_domain,
+    cell_index, cell_shape, sense,
 };
+use language::{Language, SRC_IDENTIFIER, SRC_TIME};
 use learned::{ClassRef, Learned};
 
 pub const CLASS_IDS: usize = 256;
@@ -59,8 +63,14 @@ pub enum BuildError {
     TooManyClasses,
     LitvValue,
     BadShapeKey,
-    /// `english::IDIOMS` outgrows `Tables::idioms`.
+    /// The language's idioms outgrow `Tables::idioms`.
     TooManyIdioms,
+    /// One word has two kinds.
+    KindClash,
+    /// A kind word does not fit a table slot.
+    BadKind,
+    /// A word of `Vocab` is empty, too long or has no lexicon entry.
+    BadVocab(&'static str),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -87,34 +97,34 @@ const AFFIX_DOMAINS: [(DomainId, u8); 6] = [
     (DOMAIN_MEASURE_PREFIX, 2),
 ];
 
-pub fn affix_split(roles: &[Role]) -> (usize, usize) {
+pub fn affix_split(lang: &Language, roles: &[Role]) -> (usize, usize) {
     let has = |mask: u16, r: Role| (mask >> (r & 0x0F)) & 1 == 1;
     let mut end = roles.len();
     for _ in 0..MAX_SUFFIX {
-        if end >= 2 && has(english::SUFFIX_ROLES, roles[end - 1]) {
+        if end >= 2 && has(lang.suffix_roles, roles[end - 1]) {
             end -= 1;
         }
     }
-    let start = usize::from(end >= 2 && has(english::PREFIX_ROLES, roles[0]));
+    let start = usize::from(end >= 2 && has(lang.prefix_roles, roles[0]));
     (start, end)
 }
 
-fn core_roles(roles: &[Role]) -> &[Role] {
-    let (start, end) = affix_split(roles);
+fn core_roles<'r>(lang: &Language, roles: &'r [Role]) -> &'r [Role] {
+    let (start, end) = affix_split(lang, roles);
     &roles[start..end]
 }
 
-fn affix_route(left: ClassId, right: ClassId) -> Option<u8> {
-    use english::{CENT, DOLLAR, PERCENT, POWER, PREFIX, UNIT};
+fn affix_route(lang: &Language, left: ClassId, right: ClassId) -> Option<u8> {
+    let c = &lang.class_ids;
     let domain = match right {
-        DOLLAR => DOMAIN_MONEY,
-        CENT => DOMAIN_CENTS,
-        PERCENT => DOMAIN_PERCENT,
-        UNIT => DOMAIN_MEASURE,
-        POWER => DOMAIN_MEASURE_POWER,
-        PREFIX | english::DEGREE => DOMAIN_MEASURE_PREFIX,
-        _ if left == english::MONTH => english::DOMAIN_MONTH_DATE,
-        _ if left == english::MAY => english::DOMAIN_MAY_DATE,
+        r if r == c.dollar => DOMAIN_MONEY,
+        r if r == c.cent => DOMAIN_CENTS,
+        r if r == c.percent => DOMAIN_PERCENT,
+        r if r == c.unit => DOMAIN_MEASURE,
+        r if r == c.power => DOMAIN_MEASURE_POWER,
+        r if r == c.prefix || r == c.degree => DOMAIN_MEASURE_PREFIX,
+        _ if left == c.month => lang.month_domain,
+        _ if left == c.may => lang.may_domain,
         _ => return None,
     };
     Some(pack_entry(domain, 15))
@@ -128,10 +138,11 @@ pub fn build_english() -> Result<Box<Tables>, BuildError> {
 
 pub fn build_english_with_stats() -> Result<(Box<Tables>, BuildStats), BuildError> {
     let learned = learned::parse(LEARNED).map_err(BuildError::Learned)?;
-    build(&learned).map(|b| (b.tables, b.stats))
+    build(&english::LANGUAGE, &learned).map(|b| (b.tables, b.stats))
 }
 
 pub struct Built {
+    pub lang: &'static Language,
     pub tables: Box<Tables>,
     pub stats: BuildStats,
     pub first_cue: ClassId,
@@ -199,13 +210,14 @@ fn push_entry<'a>(
 
 fn build_lexicon(
     t: &mut Tables,
+    lang: &'static Language,
     learned: &Learned,
     pool: &Pool,
 ) -> Result<LexiconInfo, BuildError> {
     let mut word_role = HashMap::new();
     let mut class_words = vec![None; CLASS_IDS];
     let mut entries = Vec::new();
-    for def in english::CLASSES {
+    for def in lang.classes {
         t.role_of[def.class as usize] = def.role;
         class_words[def.class as usize].get_or_insert(def.words[0].0);
         for &(word, value) in def.words {
@@ -213,7 +225,7 @@ fn build_lexicon(
             word_role.insert(word, def.role);
         }
     }
-    for def in english::LITERAL_CLASSES {
+    for def in lang.literal_classes {
         t.role_of[def.class as usize] = def.role;
         class_words[def.class as usize].get_or_insert(def.words[0].0);
         for &(word, _) in def.words {
@@ -225,9 +237,7 @@ fn build_lexicon(
             word_role.insert(word, def.role);
         }
     }
-    let classes = english::CLASSES.iter().map(|d| d.class);
-    let literal_classes = english::LITERAL_CLASSES.iter().map(|d| d.class);
-    let first_cue = classes.chain(literal_classes).max().unwrap_or(1) + 1;
+    let first_cue = lang.last_class() + 1;
     let cue_classes = learned
         .cues
         .iter()
@@ -245,8 +255,14 @@ fn build_lexicon(
     }
     let mut known: std::collections::HashSet<Vec<u8>> =
         entries.iter().map(|e| e.0.to_ascii_lowercase()).collect();
-    let sense_words = english::SENSES.iter().flat_map(|s| s.1.iter());
-    for &word in sense_words.chain(english::IDIOMS.iter().copied().flatten()) {
+    let sense_words = lang.senses.iter().flat_map(|s| s.1.iter());
+    let kind_words = lang.kinds.iter().flat_map(|k| k.words.iter());
+    let named = lang.vocab.names.iter().filter(|n| !n.contains(' '));
+    let extra = sense_words
+        .chain(lang.idioms.iter().copied().flatten())
+        .chain(kind_words)
+        .chain(named);
+    for &word in extra {
         if known.insert(word.as_bytes().to_ascii_lowercase()) {
             push_entry(&mut entries, t, word, CLASS_UNKNOWN, 0)?;
         }
@@ -261,17 +277,16 @@ fn build_lexicon(
     })
 }
 
-fn mark_senses(t: &mut Tables) -> Result<(), BuildError> {
-    for &(bit, words) in english::SENSES {
+fn mark_senses(t: &mut Tables, lang: &Language) -> Result<(), BuildError> {
+    for &(bit, words) in lang.senses {
         for w in words {
             t.sense[t.lexicon.lookup(w.as_bytes()).canonical as usize] |= bit;
         }
     }
-    if english::IDIOMS.len() > MAX_IDIOMS || english::IDIOMS.iter().any(|i| i.len() > MAX_IDIOM_LEN)
-    {
+    if lang.idioms.len() > MAX_IDIOMS || lang.idioms.iter().any(|i| i.len() > MAX_IDIOM_LEN) {
         return Err(BuildError::TooManyIdioms);
     }
-    for (row, idiom) in t.idioms.iter_mut().zip(english::IDIOMS) {
+    for (row, idiom) in t.idioms.iter_mut().zip(lang.idioms) {
         for (slot, w) in row.iter_mut().zip(*idiom) {
             *slot = t.lexicon.lookup(w.as_bytes()).canonical;
             t.sense[*slot as usize] |= sense::IDIOM;
@@ -280,19 +295,80 @@ fn mark_senses(t: &mut Tables) -> Result<(), BuildError> {
     Ok(())
 }
 
+fn mark_kinds(t: &mut Tables, lang: &Language) -> Result<(), BuildError> {
+    for k in lang.kinds {
+        for w in k.words {
+            let id = t.lexicon.lookup(w.as_bytes()).canonical as usize;
+            if id == 0 {
+                return Err(BuildError::BadKind);
+            }
+            if t.kind_of[id] != 0 {
+                return Err(BuildError::KindClash);
+            }
+            t.kind_of[id] = k.kind;
+            t.aux_of[id] = k.aux;
+        }
+    }
+    Ok(())
+}
+
+fn text_slot(s: &str, field: &'static str) -> Result<Text, BuildError> {
+    let mut slot = [0u8; TEXT_LEN];
+    let bytes = s.as_bytes();
+    if bytes.is_empty() || bytes.len() > TEXT_LEN || bytes.contains(&0) {
+        return Err(BuildError::BadVocab(field));
+    }
+    slot[..bytes.len()].copy_from_slice(bytes);
+    Ok(slot)
+}
+
+fn letter_mask(letters: &str, field: &'static str) -> Result<u32, BuildError> {
+    letters.bytes().try_fold(0u32, |mask, b| {
+        b.is_ascii_lowercase()
+            .then(|| mask | 1 << (b - b'a'))
+            .ok_or(BuildError::BadVocab(field))
+    })
+}
+
+fn fill_vocab(t: &mut Tables, lang: &Language) -> Result<(), BuildError> {
+    let spec = &lang.vocab;
+    let v = &mut t.vocab;
+    for (i, n) in spec.names.iter().enumerate() {
+        v.names[i] = text_slot(n, "names")?;
+        if !n.contains(' ') {
+            v.name_id[i] = t.lexicon.lookup(n.as_bytes()).canonical;
+            if v.name_id[i] == 0 {
+                return Err(BuildError::BadVocab("names"));
+            }
+        }
+    }
+    for (slot, s) in v.months.iter_mut().zip(spec.months) {
+        *slot = text_slot(s, "months")?;
+    }
+    for (slot, s) in v.hours.iter_mut().zip(spec.hours) {
+        *slot = text_slot(s, "hours")?;
+    }
+    for (slot, s) in v.centuries.iter_mut().zip(spec.centuries) {
+        *slot = text_slot(s, "centuries")?;
+    }
+    if spec.zones.len() > MAX_ZONES {
+        return Err(BuildError::BadVocab("zones"));
+    }
+    for (slot, z) in v.zones.iter_mut().zip(spec.zones) {
+        *slot = <[u8; 3]>::try_from(z.as_bytes()).map_err(|_| BuildError::BadVocab("zones"))?;
+    }
+    v.not_after_number = letter_mask(spec.not_after_number, "letters")?;
+    v.not_before_number = letter_mask(spec.not_before_number, "letters")?;
+    Ok(())
+}
+
 const AFFIX_SPREAD: f64 = 0.01;
 /// Clock fields out of these ranges are no time ("19:99"): the span reads as
 /// a plain number instead.
 const MAX_HOUR: u8 = 23;
 const MAX_MINUTE: u8 = 59;
-const CLOCK_ROLES: [Role; 2] = [english::ROLE_MER, english::ROLE_AMPM];
-const NOT_AMOUNT: [Role; 5] = [
-    english::ROLE_MER,
-    english::ROLE_ORDINAL,
-    english::ROLE_CURRENCY,
-    english::ROLE_AMPM,
-    english::ROLE_UNIT,
-];
+const CLOCK_ROLES: [Role; 2] = [ROLE_MER, ROLE_AMPM];
+const NOT_AMOUNT: [Role; 5] = [ROLE_MER, ROLE_ORDINAL, ROLE_CURRENCY, ROLE_AMPM, ROLE_UNIT];
 
 type CellLists = (Vec<u32>, HashMap<CellIndex, Vec<CandidateId>>, usize, usize);
 
@@ -379,37 +455,39 @@ fn fill_cells(
     Ok((keys, all_lists, placed, dropped))
 }
 
-pub fn build(learned: &Learned) -> Result<Built, BuildError> {
+pub fn build(lang: &'static Language, learned: &Learned) -> Result<Built, BuildError> {
     let mut t = Tables::boxed_empty();
-    let mut pool = Pool::new()?;
-    let lex = build_lexicon(&mut t, learned, &pool)?;
-    let (ranked, shapes_dropped) = rank_shapes(&lex.word_role, learned)?;
+    let mut pool = Pool::new(lang)?;
+    let lex = build_lexicon(&mut t, lang, learned, &pool)?;
+    let (ranked, shapes_dropped) = rank_shapes(lang, &lex.word_role, learned)?;
     let shape_entries: Vec<(u32, ShapeId)> = ranked
         .iter()
         .enumerate()
         .map(|(i, (key, _))| (*key, (i + 1) as ShapeId))
         .collect();
     t.shapes = ShapeTable::build(&shape_entries).map_err(BuildError::Shapes)?;
-    t.suffix_roles = english::SUFFIX_ROLES;
-    t.prefix_roles = english::PREFIX_ROLES;
-    t.connector_roles = 1 << english::ROLE_AND;
-    t.bind_roles = english::BIND_ROLES;
-    t.words_first_roles = 1 << english::ROLE_ORDINAL;
-    t.lead_skip_roles = english::LEAD_SKIP_ROLES;
-    t.left_folds = english::LEFT_FOLDS;
-    for w in english::PLURAL {
+    t.suffix_roles = lang.suffix_roles;
+    t.prefix_roles = lang.prefix_roles;
+    t.connector_roles = 1 << ROLE_AND;
+    t.bind_roles = lang.bind_roles;
+    t.words_first_roles = 1 << ROLE_ORDINAL;
+    t.lead_skip_roles = lang.lead_skip_roles;
+    t.left_folds = lang.left_folds;
+    for w in lang.plural {
         let c = t.lexicon.lookup(w.as_bytes()).canonical as usize;
         t.plural[c / 64] |= 1 << (c % 64);
     }
-    for w in english::WORDS_FIRST {
+    for w in lang.words_first {
         let c = t.lexicon.lookup(w.as_bytes()).canonical as usize;
         t.words_first[c / 64] |= 1 << (c % 64);
     }
-    mark_senses(&mut t)?;
+    mark_senses(&mut t, lang)?;
+    mark_kinds(&mut t, lang)?;
+    fill_vocab(&mut t, lang)?;
     for (domain, len) in AFFIX_DOMAINS {
         t.affix_len[domain as usize] = len;
     }
-    for domain in [english::DOMAIN_MONTH_DATE, english::DOMAIN_MAY_DATE] {
+    for domain in [lang.month_domain, lang.may_domain] {
         t.affix_len[domain as usize] = 1;
     }
     let mark = |bits: &mut [u64; 4], classes: &[ClassId]| {
@@ -417,16 +495,17 @@ pub fn build(learned: &Learned) -> Result<Built, BuildError> {
             bits[c as usize / 64] |= 1 << (c % 64);
         }
     };
-    mark(&mut t.starts, &english::START_CLASSES);
-    mark(&mut t.per_stop, &[english::PER]);
-    mark(&mut t.per_units, &english::PER_UNITS);
-    mark(&mut t.pair_only, &english::PAIR_ONLY);
-    mark(&mut t.lone_after, &[english::HOURS]);
-    mark_settings(&mut t);
+    mark(&mut t.starts, lang.start_classes);
+    mark(&mut t.per_stop, &[lang.per]);
+    mark(&mut t.per_units, lang.per_units);
+    mark(&mut t.pair_only, lang.pair_only);
+    mark(&mut t.lone_after, lang.lone_after);
+    mark_settings(&mut t, lang);
     let (keys, lists, affix_cells, affix_dropped) =
         fill_cells(&mut t, &mut pool, &ranked, learned)?;
 
     let mut b = Built {
+        lang,
         tables: t,
         stats: BuildStats::default(),
         first_cue: lex.first_cue,
@@ -442,13 +521,14 @@ pub fn build(learned: &Learned) -> Result<Built, BuildError> {
         None => {
             for left in 0..=255u8 {
                 for right in 0..=255u8 {
-                    let e = affix_route(left, right).unwrap_or_else(|| route(left, right));
+                    let e =
+                        affix_route(lang, left, right).unwrap_or_else(|| route(lang, left, right));
                     b.tables.context.set(left, right, e);
                 }
             }
         }
     }
-    alias(&mut b.tables.context, &english::ALIASES);
+    alias(&mut b.tables.context, lang.aliases);
 
     b.stats = BuildStats {
         lexicon_entries: entries,
@@ -479,14 +559,14 @@ fn alias(context: &mut ContextLut, aliases: &[(ClassId, ClassId)]) {
     }
 }
 
-fn mark_settings(t: &mut Tables) {
-    for (setting, classes) in english::SETTING_CLASSES {
-        for &c in classes {
+fn mark_settings(t: &mut Tables, lang: &Language) {
+    for (setting, classes) in lang.setting_classes {
+        for &c in *classes {
             t.class_settings[c as usize] |= setting.bit();
         }
     }
-    for (setting, domains) in english::SETTING_DOMAINS {
-        for &d in domains {
+    for (setting, domains) in lang.setting_domains {
+        for &d in *domains {
             t.domain_settings[d as usize] |= setting.bit();
         }
     }
@@ -510,14 +590,14 @@ impl Built {
             for right in 0..=255u8 {
                 let pair = pairs.get(&(left, right)).copied();
                 let (l, r) = (lefts[left as usize], rights[right as usize]);
-                let e = match hand_rule(left, right) {
+                let e = match hand_rule(self.lang, left, right) {
                     Some((h, side)) => {
                         let same = if side == Side::Left { l } else { r };
                         pair.or(same).filter(|x| x >> 4 >= h >> 4).unwrap_or(h)
                     }
                     None => pair.or(l).or(r).unwrap_or(entry(&prior)),
                 };
-                let e = affix_route(left, right).unwrap_or(e);
+                let e = affix_route(self.lang, left, right).unwrap_or(e);
                 self.tables.context.set(left, right, e);
             }
         }
@@ -526,7 +606,7 @@ impl Built {
 }
 
 const MAX_SHAPES: usize = SHAPE_COUNT - 1;
-const LONE_WORDS: &[Role] = &[english::ROLE_OH];
+const LONE_WORDS: &[Role] = &[ROLE_OH];
 
 struct ShapeInfo {
     mass: f64,
@@ -537,15 +617,15 @@ struct ShapeInfo {
 
 type RankedShape = (u32, ShapeInfo);
 
-fn affix_slot(words: &[&str], full: &[Role]) -> Option<usize> {
-    let word = match affix_split(full) {
+fn affix_slot(lang: &Language, words: &[&str], full: &[Role]) -> Option<usize> {
+    let word = match affix_split(lang, full) {
         (0, end) if end < full.len() => words[end],
         (1, end) if end == full.len() => words[0],
         _ => return None,
     };
-    let (start, end) = affix_split(full);
+    let (start, end) = affix_split(lang, full);
     let affixes = start + full.len() - end;
-    let domain = english::affix_domain(word)?;
+    let domain = (lang.affix_domain)(word)?;
     AFFIX_DOMAINS
         .iter()
         .position(|a| a.0 == domain && a.1 as usize == affixes)
@@ -559,26 +639,22 @@ pub struct KindReport {
     pub mass_covered: f64,
 }
 
-pub fn shape_report() -> Vec<KindReport> {
-    let word_role: HashMap<&str, Role> = english::CLASSES
-        .iter()
-        .flat_map(|d| d.words.iter().map(move |w| (w.0, d.role)))
-        .chain(english::literal_words())
-        .collect();
-    let Ok((ranked, _)) = rank_shapes(&word_role, &Learned::default()) else {
+pub fn shape_report(lang: &Language) -> Vec<KindReport> {
+    let word_role: HashMap<&str, Role> = lang.word_roles().collect();
+    let Ok((ranked, _)) = rank_shapes(lang, &word_role, &Learned::default()) else {
         return Vec::new();
     };
     let kept: std::collections::HashSet<u32> = ranked.iter().map(|r| r.0).collect();
     let mut per_shape: HashMap<u32, HashMap<&'static str, f64>> = HashMap::new();
     let mut mass: HashMap<&'static str, (f64, f64)> = HashMap::new();
-    for e in english::examples() {
+    for e in (lang.examples)() {
         if e.words.len() > MAX_TOKENS {
             continue;
         }
         let m = mass.entry(e.kind).or_default();
         m.0 += e.weight;
         let roles: Vec<Role> = e.words.iter().map(|w| word_role[w]).collect();
-        let key = shape_key(core_roles(&roles));
+        let key = shape_key(core_roles(lang, &roles));
         if kept.contains(&key) {
             m.1 += e.weight;
         }
@@ -616,23 +692,24 @@ pub fn shape_report() -> Vec<KindReport> {
 }
 
 fn rank_shapes(
+    lang: &Language,
     word_role: &HashMap<&str, Role>,
     learned: &Learned,
 ) -> Result<(Vec<RankedShape>, usize), BuildError> {
     let mut freq: HashMap<u32, ShapeInfo> = HashMap::new();
-    for english::Example {
+    for language::Example {
         words,
         src,
         weight,
         kind,
-    } in english::examples()
+    } in (lang.examples)()
     {
-        let weight = weight * english::kind_mass(kind);
+        let weight = weight * (lang.kind_mass)(kind);
         if words.len() > MAX_TOKENS {
             continue;
         }
         let full: Vec<Role> = words.iter().map(|w| word_role[w]).collect();
-        let roles = core_roles(&full).to_vec();
+        let roles = core_roles(lang, &full).to_vec();
         let e = freq.entry(shape_key(&roles)).or_insert_with(|| ShapeInfo {
             mass: 0.0,
             src: 0,
@@ -641,7 +718,7 @@ fn rank_shapes(
         });
         e.mass += weight;
         e.src |= src;
-        if let Some(slot) = affix_slot(&words, &full) {
+        if let Some(slot) = affix_slot(lang, &words, &full) {
             e.affix[slot] += weight;
         }
     }
@@ -693,8 +770,8 @@ fn key_roles(key: u32) -> Option<Vec<Role>> {
     (k == 0 && !roles.is_empty()).then_some(roles)
 }
 
-fn route(left: ClassId, right: ClassId) -> u8 {
-    hand_rule(left, right).map_or(pack_entry(DOMAIN_CARDINAL, 4), |h| h.0)
+fn route(lang: &Language, left: ClassId, right: ClassId) -> u8 {
+    hand_rule(lang, left, right).map_or(pack_entry(DOMAIN_CARDINAL, 4), |h| h.0)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -703,15 +780,15 @@ enum Side {
     Right,
 }
 
-fn hand_rule(left: ClassId, right: ClassId) -> Option<(u8, Side)> {
-    use english::{IDENTIFIER_LEFT, TIME_LEFT, TIME_RIGHT};
-    if TIME_RIGHT.contains(&right) {
+fn hand_rule(lang: &Language, left: ClassId, right: ClassId) -> Option<(u8, Side)> {
+    let c = &lang.class_ids;
+    if c.time_right.contains(&right) {
         Some((pack_entry(DOMAIN_TIME, 15), Side::Right))
-    } else if left == TIME_LEFT {
+    } else if left == c.time_left {
         Some((pack_entry(DOMAIN_TIME, 8), Side::Left))
-    } else if IDENTIFIER_LEFT.contains(&left) || left == english::DOT {
+    } else if c.identifier_left.contains(&left) || left == c.dot {
         Some((pack_entry(DOMAIN_IDENTIFIER, 12), Side::Left))
-    } else if right == english::DOT {
+    } else if right == c.dot {
         Some((pack_entry(DOMAIN_IDENTIFIER, 12), Side::Right))
     } else {
         None
@@ -733,6 +810,7 @@ fn to_ranks(list: &[CandidateId]) -> [CandidateId; 4] {
 type ProgramId = u16;
 
 struct Pool {
+    lang: &'static Language,
     table: Box<CandidateTable>,
     ids: HashMap<(u8, Vec<u32>), ProgramId>,
     programs: Vec<(u8, Vec<u32>)>,
@@ -750,18 +828,18 @@ struct Pool {
 }
 
 impl Pool {
-    fn new() -> Result<Self, BuildError> {
+    fn new(lang: &'static Language) -> Result<Self, BuildError> {
         let mut table = Box::new(CandidateTable::new());
         let mut lit = |text: &[u8]| table.add_literal(text).map_err(BuildError::Literal);
         let (colon, dot, space) = (lit(b":")?, lit(b".")?, lit(b" ")?);
-        let oclock = lit(b" o'clock")?;
+        let oclock = lit(lang.literals.oclock.as_bytes())?;
         let on_the_hour = lit(b":00")?;
         let hundred_hours = lit(b"00")?;
         let zero_dot = lit(b"0.")?;
-        let (comma, may) = (lit(b", ")?, lit(b"May ")?);
+        let (comma, may) = (lit(b", ")?, lit(lang.literals.may.as_bytes())?);
         let mut by_text: HashMap<&str, u8> = HashMap::new();
         let mut word_literal = HashMap::new();
-        for class in english::LITERAL_CLASSES {
+        for class in lang.literal_classes {
             for &(word, text) in class.words {
                 let id = match by_text.get(text) {
                     Some(&id) => id,
@@ -775,6 +853,7 @@ impl Pool {
             }
         }
         Ok(Self {
+            lang,
             table,
             ids: HashMap::new(),
             programs: Vec::new(),
@@ -844,7 +923,7 @@ impl Pool {
     fn cardinal(&mut self, roles: &[Role]) -> Result<Vec<ProgramId>, BuildError> {
         let ops = self.reading(roles);
         let mut list = vec![self.intern(roles.len(), &ops)?];
-        if roles == [english::ROLE_DIGIT] {
+        if roles == [ROLE_DIGIT] {
             list.push(self.raw(1)?);
         }
         if let Some(ops) = self.clock(roles, 2) {
@@ -854,7 +933,6 @@ impl Pool {
     }
 
     fn clock(&self, roles: &[Role], hour_width: u8) -> Option<Vec<u32>> {
-        use english::{ROLE_AMPM, ROLE_MER};
         let n = roles.len();
         if n >= 2 && roles[n - 1] == ROLE_AMPM {
             let mut ops = vec![op::fold(0, 1), op::fit(0, 0, MAX_HOUR)];
@@ -895,7 +973,6 @@ impl Pool {
 
     /// "oh eight hundred": 24-hour time written as four digits.
     fn hundred_hours(&self, roles: &[Role]) -> Option<Vec<u32>> {
-        use english::{ROLE_DIGIT, ROLE_HUNDRED, ROLE_OH};
         (roles == [ROLE_OH, ROLE_DIGIT, ROLE_HUNDRED]).then(|| {
             vec![
                 op::fold(0, 2),
@@ -916,7 +993,6 @@ impl Pool {
     }
 
     fn dollars_and_cents(&self, roles: &[Role]) -> Option<Vec<u32>> {
-        use english::{ROLE_AND, ROLE_CURRENCY};
         let d = roles
             .iter()
             .position(|&r| r == ROLE_CURRENCY)
@@ -942,7 +1018,6 @@ impl Pool {
     /// The written number for `roles`; `group` is how integer parts take
     /// thousands commas (an `op::GROUP*` value).
     fn amount(&self, roles: &[Role], group: u8) -> Vec<u32> {
-        use english::{ROLE_DIGIT, ROLE_MSCALE, ROLE_OH, ROLE_ORDINAL, ROLE_POINT, ROLE_SCALE};
         let n = roles.len();
         let n8 = n as u8;
         let scaled = n >= 2 && matches!(roles[n - 1], ROLE_SCALE | ROLE_MSCALE);
@@ -1005,10 +1080,9 @@ impl Pool {
         src: u8,
         roles: &[Role],
     ) -> Result<[Vec<ProgramId>; DOMAINS], BuildError> {
-        use english::{SRC_IDENTIFIER, SRC_TIME};
         let reading = self.cardinal(roles)?;
         let oh_clock = src & SRC_TIME != 0
-            && matches!(roles, [english::ROLE_OH, english::ROLE_DIGIT, rest @ ..] if minute_roles(rest));
+            && matches!(roles, [ROLE_OH, ROLE_DIGIT, rest @ ..] if minute_roles(rest));
         let card = if oh_clock {
             // Nothing else reads "oh seven thirty", so it needs no cue.
             let mut c = self.time(roles)?.unwrap_or_default();
@@ -1152,7 +1226,7 @@ impl Pool {
     fn date(&mut self, roles: &[Role]) -> Result<Vec<ProgramId>, BuildError> {
         let n = roles.len();
         let mut list = Vec::with_capacity(3);
-        if let Some(k) = roles.iter().rposition(|&r| r == english::ROLE_ORDINAL) {
+        if let Some(k) = roles.iter().rposition(|&r| r == ROLE_ORDINAL) {
             let rest = &roles[k + 1..];
             let mut ops = vec![op::fold(0, (k + 1) as u8), op::emit(0, 0), op::ord(0)];
             if !rest.is_empty() {
@@ -1177,7 +1251,7 @@ impl Pool {
     }
 
     fn month_body(&self, roles: &[Role], comma: bool) -> Option<Vec<u32>> {
-        let k = roles.iter().position(|&r| r == english::ROLE_ORDINAL);
+        let k = roles.iter().position(|&r| r == ROLE_ORDINAL);
         if let Some(k) = k.filter(|&k| k <= 1) {
             let rest = &roles[k + 1..];
             let mut ops = vec![op::fold(0, (k + 1) as u8), op::emit(0, 0), op::ord(0)];
@@ -1227,8 +1301,8 @@ impl Pool {
         let amount = self.amount(roles, op::GROUP_NONE);
         let mut out = Vec::with_capacity(2);
         for (domain, name) in [
-            (english::DOMAIN_MONTH_DATE, op::litv(0)),
-            (english::DOMAIN_MAY_DATE, op::lit(self.may)),
+            (self.lang.month_domain, op::litv(0)),
+            (self.lang.may_domain, op::lit(self.may)),
         ] {
             let lead = [name, op::skip(1)];
             let list = vec![
@@ -1247,7 +1321,6 @@ impl Pool {
     }
 
     fn time(&mut self, roles: &[Role]) -> Result<Option<Vec<ProgramId>>, BuildError> {
-        use english::{ROLE_DIGIT, ROLE_OH, ROLE_TENS};
         let n = roles.len();
         if n < 2 || roles.iter().any(|r| CLOCK_ROLES.contains(r)) {
             return Ok(None);
@@ -1291,7 +1364,6 @@ const MAX_CANDIDATE_ID: usize = u8::MAX as usize;
 
 /// Words that can be the minutes of a clock reading.
 fn minute_roles(roles: &[Role]) -> bool {
-    use english::{ROLE_DIGIT, ROLE_OH, ROLE_TEEN, ROLE_TENS};
     matches!(
         roles,
         [ROLE_TEEN] | [ROLE_TENS] | [ROLE_TENS, ROLE_DIGIT] | [ROLE_OH, ROLE_DIGIT]
@@ -1299,14 +1371,12 @@ fn minute_roles(roles: &[Role]) -> bool {
 }
 
 fn two_digit_group(roles: &[Role]) -> bool {
-    use english::{ROLE_DIGIT, ROLE_TEEN, ROLE_TENS};
     matches!(roles, [ROLE_TEEN] | [ROLE_TENS] | [ROLE_TENS, ROLE_DIGIT])
 }
 
 const YEAR_LEAD: (u8, u8) = (10, 29);
 
 fn pair_split(roles: &[Role]) -> Option<usize> {
-    use english::{ROLE_DIGIT, ROLE_OH, ROLE_TEEN, ROLE_TENS};
     let lead = |p: &[Role]| matches!(p, [ROLE_TEEN] | [ROLE_TENS] | [ROLE_TENS, ROLE_DIGIT]);
     let two_digit = |p: &[Role]| lead(p) || matches!(p, [ROLE_OH, ROLE_DIGIT]);
     (1..=2).find(|&a| a < roles.len() && lead(&roles[..a]) && two_digit(&roles[a..]))
@@ -1380,7 +1450,19 @@ fn check_candidate(
 mod tests {
     use super::*;
     use crate::engine::Internals;
-    use crate::types::{DOMAIN_DATE, DOMAIN_ORDINAL, DOMAIN_PLAIN, SHAPE_UNKNOWN, Setting};
+
+    fn build(learned: &Learned) -> Result<Built, BuildError> {
+        super::build(&english::LANGUAGE, learned)
+    }
+
+    fn shape_report() -> Vec<KindReport> {
+        super::shape_report(&english::LANGUAGE)
+    }
+
+    fn core_roles(roles: &[Role]) -> &[Role] {
+        super::core_roles(&english::LANGUAGE, roles)
+    }
+    use crate::types::{DOMAIN_DATE, DOMAIN_ORDINAL, DOMAIN_PLAIN, SHAPE_UNKNOWN, Setting, kind};
 
     fn shape_id(t: &Tables, phrase: &str) -> ShapeId {
         let words: Vec<&[u8]> = phrase.split(' ').map(str::as_bytes).collect();
@@ -1484,7 +1566,7 @@ mod tests {
             .iter()
             .map(|i| t.value_of[i.canonical as usize])
             .collect();
-        let mut pool = Pool::new().expect("pool");
+        let mut pool = Pool::new(&english::LANGUAGE).expect("pool");
         let lists = pool
             .domain_lists(english::SRC_CARDINAL | english::SRC_TIME, &roles)
             .expect("lists");
@@ -1886,6 +1968,218 @@ mod tests {
         assert!(!marked("ninety"));
     }
 
+    fn leaked(lang: Language) -> &'static Language {
+        Box::leak(Box::new(lang))
+    }
+
+    #[test]
+    fn named_words_resolve_to_lexicon_entries() {
+        let t = build_english().expect("build");
+        for (i, name) in english::LANGUAGE.vocab.names.iter().enumerate() {
+            assert_eq!(crate::tables::text(&t.vocab.names[i]), *name);
+            let id = t.lexicon.lookup(name.as_bytes()).canonical;
+            let want = if name.contains(' ') { 0 } else { id };
+            assert_eq!(t.vocab.name_id[i], want, "{name}");
+            assert!(name.contains(' ') || id != 0, "{name}");
+        }
+        assert_eq!(crate::tables::text(&t.vocab.months[4]), "May");
+        assert_eq!(crate::tables::text(&t.vocab.hours[11]), "twelve");
+        assert_eq!(crate::tables::text(&t.vocab.centuries[7]), "1800s");
+        assert_eq!(&t.vocab.zones[0], b"EST");
+        assert_eq!(t.vocab.not_after_number, 1 | 1 << 8);
+        assert_eq!(t.vocab.not_before_number, 1);
+    }
+
+    #[test]
+    fn kind_words_carry_their_kind_and_aux() {
+        let t = build_english().expect("build");
+        let at = |w: &str| t.lexicon.lookup(w.as_bytes()).canonical as usize;
+        assert_eq!(t.kind_of[at("Trillion")], kind::SCALE);
+        assert_eq!(t.aux_of[at("trillion")], 12);
+        assert_eq!(t.aux_of[at("thousand")], 3);
+        assert_eq!(t.kind_of[at("TRIPLE")], kind::DOUBLE);
+        assert_eq!(t.aux_of[at("triple")], 2);
+        assert_eq!(t.kind_of[at("boulevard")], kind::STREET);
+        assert_eq!(t.kind_of[at("uhm")], kind::FILLER);
+        assert_eq!(
+            (t.kind_of[at("may")], t.aux_of[at("may")]),
+            (kind::MONTH_VERB, 1)
+        );
+        assert_eq!(
+            (t.kind_of[at("march")], t.aux_of[at("march")]),
+            (kind::MONTH_VERB, 0)
+        );
+        assert_eq!(t.kind_of[at("dog")], 0);
+        for k in english::LANGUAGE.kinds {
+            for w in k.words {
+                assert_eq!(t.kind_of[at(w)], k.kind, "{w}");
+            }
+        }
+        assert_eq!(t.kind_of[0], 0);
+    }
+
+    #[test]
+    fn the_engine_writes_the_spellings_of_its_vocab() {
+        let mut vocab = english::LANGUAGE.vocab;
+        vocab.zones = &["ZZZ"];
+        vocab.centuries[7] = "x18";
+        let lang = leaked(Language {
+            vocab,
+            ..english::LANGUAGE
+        });
+        let built = super::build(lang, &Learned::default()).expect("build");
+        let engine = crate::engine::Normalizer::new(&built.tables);
+        assert_eq!(engine.normalize("seven p m z z z"), "7 pm ZZZ");
+        assert_eq!(engine.normalize("seven p m e s t"), "7 pm e s t");
+        assert_eq!(engine.normalize("one eighteen hundreds"), "1 x18");
+    }
+
+    fn q(word: &'static str) -> &'static str {
+        Box::leak(format!("q{word}").into_boxed_str())
+    }
+
+    fn qs(words: &[&'static str]) -> &'static [&'static str] {
+        Box::leak(
+            words
+                .iter()
+                .map(|w| q(w))
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        )
+    }
+
+    fn leak<T>(items: Vec<T>) -> &'static [T] {
+        Box::leak(items.into_boxed_slice())
+    }
+
+    /// English with every spoken word respelled "q" + word.
+    fn respelled() -> &'static Language {
+        let en = &english::LANGUAGE;
+        let classes = en.classes.iter().map(|d| language::ClassDef {
+            class: d.class,
+            role: d.role,
+            words: leak(d.words.iter().map(|&(w, v)| (q(w), v)).collect()),
+        });
+        let literal_classes = en
+            .literal_classes
+            .iter()
+            .map(|d| language::LiteralClassDef {
+                class: d.class,
+                role: d.role,
+                words: leak(d.words.iter().map(|&(w, t)| (q(w), t)).collect()),
+            });
+        let kinds = en.kinds.iter().map(|k| language::WordKind {
+            words: qs(k.words),
+            ..*k
+        });
+        let senses = en.senses.iter().map(|&(bit, w)| (bit, qs(w)));
+        let idioms = en.idioms.iter().map(|w| qs(w));
+        let mut vocab = en.vocab;
+        vocab.names = vocab.names.map(q);
+        vocab.hours = vocab.hours.map(q);
+        fn examples() -> Vec<language::Example> {
+            let mut all = (english::LANGUAGE.examples)();
+            all.iter_mut()
+                .for_each(|e| e.words = e.words.iter().map(|w| q(w)).collect());
+            all
+        }
+        fn affix_domain(word: &str) -> Option<crate::types::DomainId> {
+            (english::LANGUAGE.affix_domain)(word.strip_prefix('q')?)
+        }
+        leaked(Language {
+            classes: leak(classes.collect()),
+            literal_classes: leak(literal_classes.collect()),
+            kinds: leak(kinds.collect()),
+            senses: leak(senses.collect()),
+            idioms: leak(idioms.collect()),
+            plural: qs(en.plural),
+            words_first: qs(en.words_first),
+            vocab,
+            examples,
+            affix_domain,
+            ..*en
+        })
+    }
+
+    #[test]
+    fn a_language_with_other_words_reads_only_its_own() {
+        let built = super::build(respelled(), &Learned::default()).expect("build");
+        let engine = crate::engine::Normalizer::new(&built.tables);
+        assert_eq!(
+            engine.normalize("qmeet at qfive qthirty qpm"),
+            "qmeet at 5:30 qpm"
+        );
+        assert_eq!(engine.normalize("qtwenty qone qthousand"), "21,000");
+        assert_eq!(engine.normalize("qfifty qpercent"), "50%");
+        assert_eq!(engine.normalize("qa qhundred qand qtwenty"), "120");
+        assert_eq!(
+            engine.normalize("meet at five thirty pm"),
+            "meet at five thirty pm"
+        );
+        assert_eq!(
+            engine.normalize("twenty one thousand"),
+            "twenty one thousand"
+        );
+    }
+
+    #[test]
+    fn a_word_in_two_kinds_is_rejected() {
+        const TWICE: &[language::WordKind] = &[
+            language::WordKind {
+                kind: kind::OF,
+                aux: 0,
+                words: &["of"],
+            },
+            language::WordKind {
+                kind: kind::PER,
+                aux: 0,
+                words: &["of"],
+            },
+        ];
+        let lang = leaked(Language {
+            kinds: TWICE,
+            ..english::LANGUAGE
+        });
+        assert_eq!(
+            super::build(lang, &Learned::default()).err(),
+            Some(BuildError::KindClash)
+        );
+    }
+
+    #[test]
+    fn vocab_that_does_not_fit_a_slot_is_rejected() {
+        let mut vocab = english::LANGUAGE.vocab;
+        vocab.zones = &["EST", "ET"];
+        let lang = leaked(Language {
+            vocab,
+            ..english::LANGUAGE
+        });
+        assert_eq!(
+            super::build(lang, &Learned::default()).err(),
+            Some(BuildError::BadVocab("zones"))
+        );
+        let mut vocab = english::LANGUAGE.vocab;
+        vocab.names[0] = "a name longer than a slot";
+        let lang = leaked(Language {
+            vocab,
+            ..english::LANGUAGE
+        });
+        assert_eq!(
+            super::build(lang, &Learned::default()).err(),
+            Some(BuildError::BadVocab("names"))
+        );
+        let mut vocab = english::LANGUAGE.vocab;
+        vocab.not_before_number = "A";
+        let lang = leaked(Language {
+            vocab,
+            ..english::LANGUAGE
+        });
+        assert_eq!(
+            super::build(lang, &Learned::default()).err(),
+            Some(BuildError::BadVocab("letters"))
+        );
+    }
+
     #[test]
     fn english_sense_bits_and_idioms_come_from_the_lists() {
         let t = build_english().expect("build");
@@ -2001,8 +2295,8 @@ mod tests {
             .iter()
             .map(|i| t.value_of[i.canonical as usize])
             .collect();
-        let slot = affix_slot(&words, &roles).expect("affix");
-        let mut pool = Pool::new().expect("pool");
+        let slot = affix_slot(&english::LANGUAGE, &words, &roles).expect("affix");
+        let mut pool = Pool::new(&english::LANGUAGE).expect("pool");
         let d = AFFIX_DOMAINS[slot].0;
         let list = pool.affix_list(slot, core_roles(&roles)).expect("list");
         let id = pool.place(d, &list).expect("place")[0];
@@ -2186,7 +2480,7 @@ mod tests {
 
     #[test]
     fn learned_cell_order_promotes_and_keeps_rule_order_after() {
-        let pool = Pool::new().expect("pool");
+        let pool = Pool::new(&english::LANGUAGE).expect("pool");
         let padded = vec![
             op::fold(0, 1),
             op::fold(1, 1),

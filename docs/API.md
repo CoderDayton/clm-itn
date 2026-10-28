@@ -26,7 +26,7 @@ Every public export of the `clm_itn` crate, its Cargo features, and its command-
 pub fn english() -> Normalizer<'static>
 ```
 
-A normalizer over the built-in English tables, which are compiled into the binary, with every setting on. Allocates nothing. `Normalizer::default()` is the same normalizer.
+A normalizer over the built-in English tables, which are compiled into the binary, with every setting on except `SingleDigits`. Allocates nothing. `Normalizer::default()` is the same normalizer.
 
 ### Normalizer::without
 
@@ -42,7 +42,7 @@ Returns the normalizer with `setting` off.
 pub const fn with(self, setting: Setting) -> Self
 ```
 
-Returns the normalizer with `setting` back on.
+Returns the normalizer with `setting` on.
 
 ### Normalizer::is_on
 
@@ -95,11 +95,11 @@ It allocates about once per call on utterances of up to 8 tokens, and at most 5 
 pub enum Setting { SingleDigits, Percent, Currency, Dates, Letters, Noon, Oclock, Temperature }
 ```
 
-A rewrite beyond writing numbers as digits. All are on by default. Derives `Clone`, `Copy`, `Debug`, `PartialEq`, `Eq` and `Hash`.
+A rewrite beyond writing numbers as digits. All are on by default except `SingleDigits`, which is off: a lone "eight" stays a word. Derives `Clone`, `Copy`, `Debug`, `PartialEq`, `Eq` and `Hash`.
 
 | Setting | Name | On | Off |
 |---|---|---|---|
-| `SingleDigits` | `single-digits` | like 8 years | like eight years |
+| `SingleDigits` (off by default) | `single-digits` | like 8 years | like eight years |
 | `Percent` | `percent` | 50% | 50 percent |
 | `Currency` | `currency` | $5, $4.50 | 5 dollars, 4 dollars and 50 cents |
 | `Dates` | `dates` | July 4th, 1990 | july 4th 1990 |
@@ -110,7 +110,7 @@ A rewrite beyond writing numbers as digits. All are on by default. Derives `Clon
 
 - `Setting::ALL` is a `&'static [Setting]` of every setting, so a new setting does not change its type.
 - `name()` gives the kebab-case name, and `from_name(&str)` turns it back into a `Setting`.
-- With `SingleDigits` off, ordinals ("she finished third") and numbers of two or more words ("twenty five people" → `25 people`) are unchanged. A label or identifier word before a number ("step five", "room five") still gives digits.
+- Turn `SingleDigits` on with `.with(Setting::SingleDigits)`. Off, only a lone `0` to `9` stays a word; ordinals ("she finished third") and numbers of two or more words ("twenty five people" → `25 people`) are unaffected. A label or identifier word before a number ("step five", "room five") gives digits either way.
 - A word whose setting is off (`percent`, `dollars`, `p m`, `oclock`, `fahrenheit`) is kept as spoken, and the number before it is written as a plain number.
 
 ## Features
@@ -121,8 +121,10 @@ A rewrite beyond writing numbers as digits. All are on by default. Derives `Clon
 | none | `#![no_std]` with `alloc`; the same API |
 | `internals` | Unstable. Exposes the engine, the table builder and the `clm-learn` binary for this repo's own tools |
 
+The table builder takes a `Language` (`src/builder/language.rs`): word classes, the spoken examples shapes are ranked from, word kinds, and the spellings the line passes write (month names, time zone codes, centuries). The engine names no word; it reads them from the tables. `english::LANGUAGE` is the only definition. `Tables::to_bytes` and `Tables::from_bytes` write and read a built language as a checksummed little-endian image (about 1 MB); the loader checks layout and checksum, not meaning.
+
 ```toml
-clm-itn = { git = "https://github.com/CoderDayton/clm-itn", default-features = false } # no_std
+clm-itn = { version = "0.1", default-features = false } # no_std
 ```
 
 ## Commands
@@ -130,10 +132,23 @@ clm-itn = { git = "https://github.com/CoderDayton/clm-itn", default-features = f
 ### clm-itn
 
 ```text
-clm-itn [--no-<setting>]... [--help | --version]
+clm-itn [OPTIONS] [TEXT]...
+clm-itn [OPTIONS] -f <FILE>...
+<command> | clm-itn [OPTIONS]
 ```
 
-Reads spoken-form text from stdin, one sentence per line, and writes the written form to stdout. Invalid UTF-8 bytes become U+FFFD. `--no-<name>` switches a setting off, for example `--no-percent`. `--help` lists every setting.
+| Option | Effect |
+|---|---|
+| `[TEXT]...` | Each argument is one sentence; its written form prints on its own line |
+| `-f`, `--file <FILE>` | Normalizes every line of `FILE` (`--file=FILE` also works; `-` is stdin). Repeatable; files and text run in argument order |
+| `--json` | One JSON object per line, `{"input":"...","output":"..."}`. Errors go to stderr as `{"error":"..."}` |
+| `--no-<setting>`, `--<setting>` | Switches a setting off or on, for example `--no-percent` or `--single-digits`. A later flag wins |
+| `-d -p -c -D -l -n -o -t` | Flip a setting from its default: `--single-digits`, `--no-percent`, `--no-currency`, `--no-dates`, `--no-letters`, `--no-noon`, `--no-oclock`, `--no-temperature`. They combine: `-dp` |
+| `--` | Ends the options, so text can start with a dash |
+| `-h`, `--help` | Prints the usage and every setting |
+| `-V`, `--version` | Prints the version |
+
+With no `TEXT` and no `--file`, it reads stdin, one sentence per line; invalid UTF-8 bytes become U+FFFD. Run with no arguments in a terminal, it prints the help. Exit codes: 0 success (including a closed pipe), 1 an unreadable file or write error, 2 a usage error. `--no-<name>` switches a setting off, for example `--no-percent`. `--help` lists every setting.
 
 ### clm-bench
 

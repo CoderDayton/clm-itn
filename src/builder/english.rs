@@ -1,7 +1,9 @@
+use super::language::{Classes, Language, Literals, VocabSpec, WordKind};
 use crate::hash::next_seed;
 use crate::types::{
     CLASS_UNKNOWN, ClassId, DOMAIN_CENTS, DOMAIN_MEASURE, DOMAIN_MEASURE_POWER,
-    DOMAIN_MEASURE_PREFIX, DOMAIN_MONEY, DOMAIN_PERCENT, DomainId, Role, Setting, sense,
+    DOMAIN_MEASURE_PREFIX, DOMAIN_MONEY, DOMAIN_PERCENT, DomainId, Role, Setting, kind, name,
+    sense,
 };
 
 pub const DIGIT: ClassId = 2;
@@ -92,23 +94,15 @@ pub const TIME_RIGHT: [ClassId; 4] = [AM, PM, OCLOCK, HOURS];
 pub const TIME_LEFT: ClassId = AT;
 pub const IDENTIFIER_LEFT: [ClassId; 7] = [NUMBER, ROOM, FLIGHT, CODE, PIN, EXTENSION, LABEL];
 
-pub const SRC_CARDINAL: u8 = 1;
-pub const SRC_TIME: u8 = 2;
-pub const SRC_IDENTIFIER: u8 = 4;
-pub const SRC_YEAR: u8 = 8;
-pub const SRC_DATE: u8 = 16;
+pub use super::language::{
+    ClassDef, Example, LiteralClassDef, SRC_CARDINAL, SRC_DATE, SRC_IDENTIFIER, SRC_TIME, SRC_YEAR,
+};
 
 pub const SUFFIX_ROLES: u16 = (1 << ROLE_CURRENCY) | (1 << ROLE_UNIT);
 pub const PREFIX_ROLES: u16 = 1 << ROLE_MINUS;
 pub const BIND_ROLES: u16 = (1 << ROLE_HUNDRED) | (1 << ROLE_SCALE) | (1 << ROLE_MSCALE);
 pub const LEAD_SKIP_ROLES: u16 = (1 << ROLE_AMPM) | (1 << ROLE_MER);
 pub const LITV_ROLES: [Role; 3] = [ROLE_CURRENCY, ROLE_AMPM, ROLE_UNIT];
-
-pub struct LiteralClassDef {
-    pub class: ClassId,
-    pub role: Role,
-    pub words: &'static [(&'static str, &'static str)],
-}
 
 pub const LITERAL_CLASSES: &[LiteralClassDef] = &[
     LiteralClassDef {
@@ -319,18 +313,6 @@ pub fn affix_domain(word: &str) -> Option<DomainId> {
         PREFIX => Some(DOMAIN_MEASURE_PREFIX),
         _ => None,
     }
-}
-
-pub fn literal_words() -> impl Iterator<Item = (&'static str, Role)> {
-    LITERAL_CLASSES
-        .iter()
-        .flat_map(|c| c.words.iter().map(move |w| (w.0, c.role)))
-}
-
-pub struct ClassDef {
-    pub class: ClassId,
-    pub role: Role,
-    pub words: &'static [(&'static str, u32)],
 }
 
 pub const CLASSES: &[ClassDef] = &[
@@ -750,6 +732,14 @@ pub const SENSES: &[(u32, &[&str])] = &[
     (sense::A, &["a"]),
     (sense::AN, &["an"]),
     (sense::AND, &["and"]),
+    (sense::MERIDIEM, &["am", "pm", "m"]),
+    (
+        sense::SUBJECT,
+        &[
+            "i", "you", "we", "they", "he", "she", "it", "who", "to", "will", "can", "could",
+            "might", "would", "should", "must",
+        ],
+    ),
     (sense::BY, &["by"]),
     (sense::DAY, &["day"]),
     (sense::IN, &["in"]),
@@ -774,13 +764,6 @@ pub const IDIOMS: &[&[&str]] = &[
 
 pub fn kind_mass(kind: &str) -> f64 {
     KIND_MASS.iter().find(|k| k.0 == kind).map_or(0.0, |k| k.1)
-}
-
-pub struct Example {
-    pub words: Vec<&'static str>,
-    pub src: u8,
-    pub weight: f64,
-    pub kind: &'static str,
 }
 
 fn under_1000(n: u32, out: &mut Vec<&'static str>) {
@@ -1449,6 +1432,198 @@ pub fn examples() -> Vec<Example> {
     s.out
 }
 
+/// Words the line passes look for, by kind.
+pub const KINDS: &[WordKind] = &[
+    WordKind {
+        kind: kind::A,
+        aux: 0,
+        words: &["a"],
+    },
+    WordKind {
+        kind: kind::OF,
+        aux: 0,
+        words: &["of"],
+    },
+    WordKind {
+        kind: kind::PER,
+        aux: 0,
+        words: &["per"],
+    },
+    WordKind {
+        kind: kind::DOT,
+        aux: 0,
+        words: &["dot"],
+    },
+    WordKind {
+        kind: kind::DOUBLE,
+        aux: 1,
+        words: &["double"],
+    },
+    WordKind {
+        kind: kind::DOUBLE,
+        aux: 2,
+        words: &["triple"],
+    },
+    WordKind {
+        kind: kind::HUNDRED,
+        aux: 0,
+        words: &["hundred"],
+    },
+    WordKind {
+        kind: kind::HUNDREDS,
+        aux: 0,
+        words: &["hundreds"],
+    },
+    WordKind {
+        kind: kind::STREET,
+        aux: 0,
+        words: &[
+            "road",
+            "lane",
+            "drive",
+            "court",
+            "place",
+            "street",
+            "avenue",
+            "parkway",
+            "highway",
+            "boulevard",
+        ],
+    },
+    WordKind {
+        kind: kind::MONTH_VERB,
+        aux: 1,
+        words: &["may"],
+    },
+    WordKind {
+        kind: kind::MONTH_VERB,
+        aux: 0,
+        words: &["march"],
+    },
+    WordKind {
+        kind: kind::FILLER,
+        aux: 0,
+        words: &["uh", "um", "er", "ah", "uhm", "hmm"],
+    },
+    WordKind {
+        kind: kind::SCALE,
+        aux: 3,
+        words: &["thousand"],
+    },
+    WordKind {
+        kind: kind::SCALE,
+        aux: 6,
+        words: &["million"],
+    },
+    WordKind {
+        kind: kind::SCALE,
+        aux: 9,
+        words: &["billion"],
+    },
+    WordKind {
+        kind: kind::SCALE,
+        aux: 12,
+        words: &["trillion"],
+    },
+    WordKind {
+        kind: kind::SCALE,
+        aux: 15,
+        words: &["quadrillion"],
+    },
+    WordKind {
+        kind: kind::SCALE,
+        aux: 18,
+        words: &["quintillion"],
+    },
+    WordKind {
+        kind: kind::NOON,
+        aux: 0,
+        words: &["noon", "midnight"],
+    },
+];
+
+const NAMES: [&str; name::COUNT] = [
+    "one", "two", "oh", "thousand", "billion", "percent", "per cent", "twenty", "twelve", "hours",
+    "and", "cent", "first", "am", "dot",
+];
+
+pub static LANGUAGE: Language = Language {
+    name: "english",
+    classes: CLASSES,
+    literal_classes: LITERAL_CLASSES,
+    class_ids: Classes {
+        dollar: DOLLAR,
+        cent: CENT,
+        percent: PERCENT,
+        unit: UNIT,
+        power: POWER,
+        prefix: PREFIX,
+        degree: DEGREE,
+        month: MONTH,
+        may: MAY,
+        dot: DOT,
+        time_left: TIME_LEFT,
+        time_right: &TIME_RIGHT,
+        identifier_left: &IDENTIFIER_LEFT,
+    },
+    kinds: KINDS,
+    vocab: VocabSpec {
+        names: NAMES,
+        months: [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ],
+        hours: [
+            "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+            "eleven", "twelve",
+        ],
+        centuries: [
+            "1100s", "1200s", "1300s", "1400s", "1500s", "1600s", "1700s", "1800s", "1900s",
+        ],
+        zones: &[
+            "EST", "EDT", "CST", "CDT", "MST", "MDT", "PST", "PDT", "GMT", "UTC", "BST",
+        ],
+        not_after_number: "ai",
+        not_before_number: "a",
+    },
+    literals: Literals {
+        oclock: " o'clock",
+        may: "May ",
+    },
+    senses: SENSES,
+    idioms: IDIOMS,
+    plural: PLURAL,
+    words_first: WORDS_FIRST,
+    suffix_roles: SUFFIX_ROLES,
+    prefix_roles: PREFIX_ROLES,
+    bind_roles: BIND_ROLES,
+    lead_skip_roles: LEAD_SKIP_ROLES,
+    left_folds: LEFT_FOLDS,
+    aliases: &ALIASES,
+    start_classes: &START_CLASSES,
+    per: PER,
+    per_units: &PER_UNITS,
+    pair_only: &PAIR_ONLY,
+    lone_after: &[HOURS],
+    setting_classes: &SETTING_CLASSES,
+    setting_domains: &SETTING_DOMAINS,
+    month_domain: DOMAIN_MONTH_DATE,
+    may_domain: DOMAIN_MAY_DATE,
+    affix_domain,
+    examples,
+    kind_mass,
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1488,7 +1663,11 @@ mod tests {
         let words: std::collections::HashSet<&str> = CLASSES
             .iter()
             .flat_map(|c| c.words.iter().map(|w| w.0))
-            .chain(literal_words().map(|w| w.0))
+            .chain(
+                LITERAL_CLASSES
+                    .iter()
+                    .flat_map(|c| c.words.iter().map(|w| w.0)),
+            )
             .collect();
         for e in examples() {
             for w in e.words {

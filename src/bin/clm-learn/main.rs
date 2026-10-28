@@ -5,7 +5,7 @@ use clm_itn::builder::learn::{
     DomainEval, MAX_WRONG, Options, Outcome, Plain, exact_sentences, learn_with,
 };
 use clm_itn::builder::learned::{self, Learned};
-use clm_itn::builder::{Built, build};
+use clm_itn::builder::{Built, build, english};
 use clm_itn::engine::window::{format_line, windows};
 use clm_itn::engine::{Internals, Normalizer};
 use clm_itn::tables::Tables;
@@ -87,8 +87,15 @@ fn run(dir: &Path, out: &Path, opts: &Options) -> Result<(), String> {
     let train = read(dir, "train.txt")?;
     let val = read(dir, "val.txt")?;
     let test = read(dir, "test.txt")?;
-    let outcome = learn_with(&train, &val, &runtime_windows, &runtime_format, opts)
-        .map_err(|e| format!("{e:?}"))?;
+    let outcome = learn_with(
+        &english::LANGUAGE,
+        &train,
+        &val,
+        &runtime_windows,
+        &runtime_format,
+        opts,
+    )
+    .map_err(|e| format!("{e:?}"))?;
     let mut learned = outcome.learned.clone();
     learned.comments = vec![
         format!("tau {}", outcome.tau),
@@ -97,8 +104,8 @@ fn run(dir: &Path, out: &Path, opts: &Options) -> Result<(), String> {
     ];
     let text = learned::write(&learned);
     let check = learned::parse(&text).map_err(|e| format!("re-parse: {e:?}"))?;
-    let base = build(&Learned::default()).map_err(|e| format!("{e:?}"))?;
-    let done = build(&check).map_err(|e| format!("{e:?}"))?;
+    let base = build(&english::LANGUAGE, &Learned::default()).map_err(|e| format!("{e:?}"))?;
+    let done = build(&english::LANGUAGE, &check).map_err(|e| format!("{e:?}"))?;
     std::fs::write(out, &text).map_err(|e| format!("{}: {e}", out.display()))?;
     report(
         &outcome,
