@@ -28,3 +28,6 @@ docs/plans/
 
 # Python bytecode
 __pycache__/
+
+# Project Files
+CLAUDE.md
