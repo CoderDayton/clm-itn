@@ -3,12 +3,16 @@ use alloc::vec::Vec;
 use alloc::{format, vec};
 
 use crate::engine::Normalizer;
+pub(crate) mod rules;
+
 use crate::engine::span::fold_left;
 use crate::tables::{Tables, WORDS_FIRST_WORDS, text};
 use crate::types::{
-    CLASS_UNKNOWN, CanonicalId, MAX_TOKENS, ROLE_AND, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE,
-    ROLE_OH, ROLE_ORDINAL, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting, TokenInfo, kind, name, sense,
+    CLASS_UNKNOWN, CanonicalId, MAX_TOKENS, ROLE_AND, ROLE_CURRENCY, ROLE_DIGIT, ROLE_HUNDRED,
+    ROLE_MSCALE, ROLE_OH, ROLE_ORDINAL, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting, TokenInfo, kind,
+    name, sense,
 };
+use rules::{English, Lang, Rules, Spanish};
 
 const LINE_OUT: usize = 512;
 const LEAD_PUNCT: &[char] = &['"', '\'', '(', '[', '{', '\u{201C}', '\u{2018}', '\u{00AB}'];
@@ -287,7 +291,7 @@ fn meridiem<'a>(t: &'a Tables, letter: &str, next: &str) -> Option<(&'a str, usi
     (letter.eq_ignore_ascii_case(first) && m.eq_ignore_ascii_case(second)).then_some((am, m.len()))
 }
 
-fn join_meridiem<'a>(words: &mut Vec<Word<'a>>, t: &'a Tables) {
+fn join_meridiem<'a, R: Rules>(words: &mut Vec<Word<'a>>, t: &'a Tables) {
     let mut put = 0;
     let mut i = 0;
     while i < words.len() {
@@ -297,7 +301,11 @@ fn join_meridiem<'a>(words: &mut Vec<Word<'a>>, t: &'a Tables) {
             .then(|| words.get(i + 1))
             .flatten()
             .filter(|n| n.lead.is_empty())
-            .and_then(|n| meridiem(t, w.core, n.core).map(|(j, len)| (j, n.core, n.trail, len)));
+            .and_then(|n| {
+                meridiem(t, w.core, n.core)
+                    .or_else(|| R::meridiem(w.core, n.core))
+                    .map(|(j, len)| (j, n.core, n.trail, len))
+            });
         match joined {
             Some((core, next_core, next_trail, len)) => {
                 let trail = if next_trail.is_empty() {
@@ -433,7 +441,11 @@ fn bare(core: &str) -> &str {
 
 /// Ranges of words that stay as spoken. Most lines have none, so this
 /// rarely allocates.
-fn guarded(t: &Tables, words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<(usize, usize)> {
+fn guarded<R: Rules>(
+    t: &Tables,
+    words: &[Word],
+    counting: impl Fn(&str) -> bool,
+) -> Vec<(usize, usize)> {
     let n = words.len();
     let num = |i: usize| words[i].value();
     let filler = |i: usize| words[i].filler();
@@ -496,6 +508,9 @@ fn guarded(t: &Tables, words: &[Word], counting: impl Fn(&str) -> bool) -> Vec<(
         if num(i)
             && let Some((from, to)) = word_sense(t, words, i)
         {
+            mark(from, to);
+        }
+        if let Some((from, to)) = R::hold(t, words, i) {
             mark(from, to);
         }
         if let Some(end) = mixed_fraction(t, words, i) {
@@ -694,7 +709,7 @@ fn clock_digits(core: &str) -> Option<usize> {
 
 /// Which of the rare line passes can apply, so a plain line pays for none of
 /// them. Each bit is a superset of its pass.
-fn features(words: &[Word], t: &Tables) -> u8 {
+fn features<R: Rules>(words: &[Word], t: &Tables) -> u8 {
     let mut f = 0;
     let number = |w: Option<&Word>| w.is_some_and(|w| w.numeric() || w.all_digits());
     for (k, w) in words.iter().enumerate().filter(|(_, w)| w.kind != 0) {
@@ -707,7 +722,7 @@ fn features(words: &[Word], t: &Tables) -> u8 {
             K_HUNDREDS if prev.is_some_and(|p| p.value()) => F_EXPAND,
             K_MONTH_VERB if prev.is_some_and(|p| p.has(W_SUBJECT)) => F_VERBS,
             K_LETTER if number(prev) || number(next) => F_LETTERS,
-            K_OF if prev.is_some_and(|p| p.ordinal()) => F_CUTS,
+            K_OF if prev.is_some_and(|p| p.ordinal() || (R::CARDINAL_DAYS && p.value())) => F_CUTS,
             K_PER | K_DOUBLE => F_EXPAND,
             K_HUNDRED
                 if prev.is_some_and(|p| named(t, p, name::TWENTY))
@@ -759,7 +774,7 @@ fn verb_months(words: &mut [Word], t: &Tables) {
 /// Rewrites spoken forms the tables do not read: "twelve per cent",
 /// "double oh seven", "a hundred and twenty" (but not "a hundred people"),
 /// "a dollar fifty", "5 thirty" and "eighteen hundreds".
-fn expand<'a>(words: Vec<Word<'a>>, t: &'a Tables, percent: bool) -> Vec<Word<'a>> {
+fn expand<'a, R: Rules>(words: Vec<Word<'a>>, t: &'a Tables, percent: bool) -> Vec<Word<'a>> {
     let mut out: Vec<Word<'a>> = Vec::with_capacity(words.len() + 2);
     let mut i = 0;
     while i < words.len() {
@@ -777,6 +792,19 @@ fn expand<'a>(words: Vec<Word<'a>>, t: &'a Tables, percent: bool) -> Vec<Word<'a
         let century = next.filter(|n| n.kind == K_HUNDREDS).and(century(t, &w));
         let after_number = out.last().is_some_and(|p| p.value() && p.trail.is_empty());
         match next {
+            Some(n)
+                if R::PERCENT_WORD_IS_NUMBER
+                    && !percent
+                    && w.kind == K_PER
+                    && named(t, &n, name::CENT)
+                    && after_number =>
+            {
+                out.extend([w, n].map(|x| Word {
+                    flags: x.flags | W_KEEP,
+                    ..x
+                }));
+                i += 2;
+            }
             Some(n) if percent && w.kind == K_PER && named(t, &n, name::CENT) && after_number => {
                 let joined = tag_named(t, w.lead, name::PERCENT, n.trail);
                 out.push(Word {
@@ -921,7 +949,7 @@ fn phone_hundreds<'a>(words: Vec<Word<'a>>, t: &'a Tables) -> Vec<Word<'a>> {
 /// A cut keeps a word from being context for the number next to it: "at"
 /// before a street number is not a time cue. "the fourth of july" is a date
 /// even though "the fourth" alone stays a word, so its month is capitalized.
-fn cuts<'a>(words: &mut [Word<'a>], t: &'a Tables) {
+fn cuts<'a, R: Rules>(words: &mut [Word<'a>], t: &'a Tables) {
     let n = words.len();
     let linked = |words: &[Word], k: usize| k + 1 < n && open(&words[k], &words[k + 1]);
     for i in 0..n {
@@ -938,7 +966,8 @@ fn cuts<'a>(words: &mut [Word<'a>], t: &'a Tables) {
                 words[i - 1].flags |= W_CUT;
             }
         }
-        let month = (i + 2 < n && words[i].ordinal() && words[i + 1].kind == K_OF)
+        let day = words[i].ordinal() || (R::CARDINAL_DAYS && words[i].value());
+        let month = (i + 2 < n && day && words[i + 1].kind == K_OF)
             .then(|| {
                 let name = bare(words[i + 2].core);
                 (t.vocab.months.iter().map(|m| text(m))).find(|m| m.eq_ignore_ascii_case(name))
@@ -1109,16 +1138,24 @@ const CUT_BEHIND: usize = 16;
 const CUT_AHEAD: usize = 16;
 
 pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
-    format_line_in(engine, line, out, BATCH_WORDS);
+    match engine.lang {
+        Lang::English => format_line_in::<English>(engine, line, out, BATCH_WORDS),
+        Lang::Spanish => format_line_in::<Spanish>(engine, line, out, BATCH_WORDS),
+    };
 }
 
 /// [`format_line`] in batches of at least `batch` words, cut only where the
 /// output is the same as formatting the line whole. Returns the most words
 /// formatted at once.
-pub fn format_line_in(engine: &Normalizer, line: &str, out: &mut String, batch: usize) -> usize {
+fn format_line_in<R: Rules>(
+    engine: &Normalizer,
+    line: &str,
+    out: &mut String,
+    batch: usize,
+) -> usize {
     let spaces = line.bytes().filter(|&b| b == b' ').count();
     if spaces < batch {
-        return format_short(engine, line, out, spaces);
+        return format_short::<R>(engine, line, out, spaces);
     }
     let first = batch.saturating_add(CUT_BEHIND + CUT_AHEAD);
     let mut words = Vec::with_capacity(first.saturating_add(3));
@@ -1138,7 +1175,7 @@ pub fn format_line_in(engine: &Normalizer, line: &str, out: &mut String, batch: 
                 resume,
                 size: batch,
             };
-            let step = format_batch(engine, rest, &mut words, &mut raw, this, out);
+            let step = format_batch::<R>(engine, rest, &mut words, &mut raw, this, out);
             match step {
                 Some(next) => {
                     rest = &rest[next.at..];
@@ -1159,7 +1196,7 @@ pub fn format_line_in(engine: &Normalizer, line: &str, out: &mut String, batch: 
             _ => None,
         };
         let piece = cut.map_or(rest, |k| &rest[..k]);
-        words = format_piece(engine, piece, words, end, ragged, resume, out);
+        words = format_piece::<R>(engine, piece, words, end, ragged, resume, out);
         let Some(k) = cut else { return most };
         let n = rest[k..].find(|c| !is_break(c)).unwrap_or(rest.len() - k);
         out.push_str(&rest[k..k + n]);
@@ -1170,7 +1207,12 @@ pub fn format_line_in(engine: &Normalizer, line: &str, out: &mut String, batch: 
 }
 
 /// A line too short to batch, formatted piece by piece between its breaks.
-fn format_short(engine: &Normalizer, line: &str, out: &mut String, spaces: usize) -> usize {
+fn format_short<R: Rules>(
+    engine: &Normalizer,
+    line: &str,
+    out: &mut String,
+    spaces: usize,
+) -> usize {
     let mut words = Vec::with_capacity(spaces + 3);
     let mut rest = line;
     let mut most = 0;
@@ -1182,7 +1224,7 @@ fn format_short(engine: &Normalizer, line: &str, out: &mut String, spaces: usize
             _ => None,
         };
         let piece = cut.map_or(rest, |k| &rest[..k]);
-        words = format_piece(engine, piece, words, end, ragged, None, out);
+        words = format_piece::<R>(engine, piece, words, end, ragged, None, out);
         let Some(k) = cut else { return most };
         let n = rest[k..].find(|c| !is_break(c)).unwrap_or(rest.len() - k);
         out.push_str(&rest[k..k + n]);
@@ -1253,7 +1295,7 @@ fn tokenize<'a, const BATCHED: bool>(
 
 /// Formats a line with no tabs or line breaks, given its words, and returns
 /// the word list for reuse. Words before `resume` are already written.
-fn format_piece<'a>(
+fn format_piece<'a, R: Rules>(
     engine: &Normalizer<'a>,
     line: &'a str,
     words: Vec<Word<'a>>,
@@ -1267,9 +1309,9 @@ fn format_piece<'a>(
         out.push_str(line);
         return words;
     }
-    let (words, f, piece) = prepare(engine, line, words, ragged);
+    let (words, f, piece) = prepare::<R>(engine, line, words, ragged);
     let from = resume.map_or(0, |at| resume_at(line, &words, at));
-    emit(engine, &words, from..words.len(), f, piece, begin, out);
+    emit::<R>(engine, &words, from..words.len(), f, piece, begin, out);
     out.push_str(&line[end..]);
     words
 }
@@ -1313,7 +1355,7 @@ struct Batch {
 /// next batch starts with, or writes nothing and leaves them all when there
 /// is no cut. `raw` is scratch.
 #[inline(never)]
-fn format_batch<'a>(
+fn format_batch<'a, R: Rules>(
     engine: &Normalizer<'a>,
     line: &'a str,
     words: &mut Vec<Word<'a>>,
@@ -1328,10 +1370,10 @@ fn format_batch<'a>(
     let begin = out.len();
     raw.clear();
     raw.extend_from_slice(words);
-    let (mut prepared, f, piece) = prepare(engine, line, core::mem::take(words), ragged);
+    let (mut prepared, f, piece) = prepare::<R>(engine, line, core::mem::take(words), ragged);
     let skip = resume.map_or(0, |at| resume_at(line, &prepared, at));
     let least = skip + (size / 2).max(1);
-    let found = batch_cut(engine.tables, &prepared, piece, skip, least).and_then(|c| {
+    let found = batch_cut::<R>(engine.tables, &prepared, piece, skip, least).and_then(|c| {
         let at = prepared[c].gap.as_ptr().addr();
         let r = raw.iter().rposition(|w| w.gap.as_ptr().addr() == at)?;
         Some((c, at, r))
@@ -1342,7 +1384,7 @@ fn format_batch<'a>(
         *words = prepared;
         return None;
     };
-    emit(engine, &prepared, skip..c, f, piece, begin, out);
+    emit::<R>(engine, &prepared, skip..c, f, piece, begin, out);
     let mut behind = r.saturating_sub(CUT_BEHIND);
     while behind > 0 && !in_line(line, &raw[behind]) {
         behind -= 1;
@@ -1383,7 +1425,13 @@ fn seam_ok(words: &[Word], c: usize, boundary: bool) -> bool {
 /// same start, and the words on both sides of it read as in the whole line.
 /// A segment cut in two keeps at least two words a side, since a one-word
 /// segment formats differently.
-fn batch_cut(t: &Tables, words: &[Word], piece: Piece, skip: usize, least: usize) -> Option<usize> {
+fn batch_cut<R: Rules>(
+    t: &Tables,
+    words: &[Word],
+    piece: Piece,
+    skip: usize,
+    least: usize,
+) -> Option<usize> {
     let n = words.len();
     let most = n.checked_sub(CUT_AHEAD)?;
     if most < least {
@@ -1397,7 +1445,7 @@ fn batch_cut(t: &Tables, words: &[Word], piece: Piece, skip: usize, least: usize
             s -= 1;
         }
         if s <= most {
-            plan(t, piece, &words[s..e], &mut windows);
+            plan::<R>(t, piece, &words[s..e], &mut windows);
             let found = windows
                 .as_slice()
                 .iter()
@@ -1423,45 +1471,46 @@ fn batch_cut(t: &Tables, words: &[Word], piece: Piece, skip: usize, least: usize
 
 /// Runs the line passes on a line's words.
 #[inline(always)]
-fn prepare<'a>(
+fn prepare<'a, R: Rules>(
     engine: &Normalizer<'a>,
     line: &'a str,
     mut words: Vec<Word<'a>>,
     ragged: bool,
 ) -> (Vec<Word<'a>>, u8, Piece<'a>) {
     let t = engine.tables;
+    words = R::rewrite(t, line, words);
     if engine.is_on(Setting::Letters) {
-        join_meridiem(&mut words, t);
+        join_meridiem::<R>(&mut words, t);
         join_zone(&mut words, t);
     }
     if engine.is_on(Setting::Noon) {
         drop_twelve(&mut words, t);
     }
-    let mut f = features(&words, t);
+    let mut f = features::<R>(&words, t);
     if f & F_VERBS != 0 {
         verb_months(&mut words, t);
     }
     if f & F_EXPAND != 0 {
-        words = expand(words, t, engine.is_on(Setting::Percent));
-        f = features(&words, t);
+        words = expand::<R>(words, t, engine.is_on(Setting::Percent));
+        f = features::<R>(&words, t);
     }
     if f & F_PHONE != 0 {
         words = phone_hundreds(words, t);
     }
     if f & F_CUTS != 0 {
-        cuts(&mut words, t);
+        cuts::<R>(&mut words, t);
     }
     let counting = |core: &str| {
         let role = t.role_of[lookup(t, core).class as usize] & 0x0F;
         COUNTING_ROLES >> role & 1 == 1
     };
-    for (from, to) in guarded(t, &words, counting) {
+    for (from, to) in guarded::<R>(t, &words, counting) {
         for w in &mut words[from..=to] {
             w.flags |= W_KEEP;
         }
     }
     if words.len() > MAX_TOKENS {
-        elide_and(&mut words, engine, line, MAX_TOKENS);
+        elide_and::<R>(&mut words, engine, line, MAX_TOKENS);
     }
     let piece = Piece {
         text: line,
@@ -1474,7 +1523,7 @@ fn prepare<'a>(
 /// Writes the prepared words `from..to` of a line, which started at `begin`
 /// in `out`. A segment starts at `from` and ends at `to`.
 #[inline(always)]
-fn emit(
+fn emit<R: Rules>(
     engine: &Normalizer,
     all: &[Word],
     span: core::ops::Range<usize>,
@@ -1505,7 +1554,7 @@ fn emit(
         if words[i].keep() || (start == i && counting_list(all, i)) {
             push_raw(out, segment);
         } else {
-            format_segment(
+            format_segment::<R>(
                 engine,
                 segment,
                 piece,
@@ -1538,8 +1587,12 @@ fn role(t: &Tables, w: &Word) -> u8 {
 }
 
 /// A word a cardinal group can start with: a digit, teen or tens word.
-fn starts_group(t: &Tables, w: &Word) -> bool {
-    matches!(role(t, w), ROLE_DIGIT | ROLE_TEEN | ROLE_TENS | ROLE_OH)
+fn starts_group<R: Rules>(t: &Tables, w: &Word) -> bool {
+    match role(t, w) {
+        ROLE_DIGIT | ROLE_TEEN | ROLE_TENS | ROLE_OH => true,
+        ROLE_HUNDRED => R::WHOLE_HUNDREDS && t.kind_of[w.info.canonical as usize] != kind::HUNDRED,
+        _ => false,
+    }
 }
 
 /// `line` from the start of `a` to the end of `b`, when both lie in it.
@@ -1554,7 +1607,12 @@ fn joined<'a>(line: &'a str, a: &str, b: &str) -> Option<&'a str> {
 /// and five" or "thousand and five", so the run splits at its scales. The
 /// "and" stays in the spoken text. A range ("one hundred and two hundred")
 /// keeps it.
-fn elide_and<'a>(words: &mut Vec<Word<'a>>, engine: &Normalizer, line: &'a str, min_len: usize) {
+fn elide_and<'a, R: Rules>(
+    words: &mut Vec<Word<'a>>,
+    engine: &Normalizer,
+    line: &'a str,
+    min_len: usize,
+) {
     let t = engine.tables;
     let linked = |a: &Word, b: &Word| {
         open(a, b) && a.numeric() && b.numeric() && !a.cut() && !a.keep() && !b.keep()
@@ -1568,9 +1626,13 @@ fn elide_and<'a>(words: &mut Vec<Word<'a>>, engine: &Normalizer, line: &'a str, 
         let mut k = i + 1;
         while j - i > min_len && k + 1 < j {
             let prev = words[k - 1];
-            let said = (role(t, &words[k]) == ROLE_AND
+            let fits = !R::CENTS_AFTER_CURRENCY
+                || role(t, &prev) != ROLE_CURRENCY
+                || j - i - 1 <= MAX_TOKENS;
+            let said = (fits
+                && role(t, &words[k]) == ROLE_AND
                 && core::ptr::eq(prev.said, prev.core)
-                && final_and(engine, &words[k + 1..j], &prev))
+                && final_and::<R>(engine, &words[k + 1..j], &prev))
             .then(|| joined(line, prev.said, words[k].core))
             .flatten();
             match said {
@@ -1588,9 +1650,10 @@ fn elide_and<'a>(words: &mut Vec<Word<'a>>, engine: &Normalizer, line: &'a str, 
 
 /// Whether an "and" after `prev` joins the group in `after` to it: `prev` is
 /// "hundred" or a scale, and the group is smaller than it.
-fn final_and(engine: &Normalizer, after: &[Word], prev: &Word) -> bool {
+fn final_and<R: Rules>(engine: &Normalizer, after: &[Word], prev: &Word) -> bool {
     let t = engine.tables;
-    let p = if role(t, prev) == ROLE_HUNDRED {
+    let currency = R::CENTS_AFTER_CURRENCY && role(t, prev) == ROLE_CURRENCY;
+    let p = if role(t, prev) == ROLE_HUNDRED || currency {
         2
     } else {
         u32::from(prev.exp)
@@ -1602,18 +1665,23 @@ fn final_and(engine: &Normalizer, after: &[Word], prev: &Word) -> bool {
             ROLE_DIGIT | ROLE_TEEN | ROLE_TENS | ROLE_OH => {
                 group += u64::from(engine.value(w.info.canonical));
             }
-            ROLE_HUNDRED => group = group.max(1) * 100,
+            ROLE_HUNDRED => match engine.value(w.info.canonical) {
+                v if R::WHOLE_HUNDREDS && v != 100 => group += u64::from(v),
+                _ => group = group.max(1) * 100,
+            },
+            ROLE_AND if currency && len > 0 => {}
             _ => break,
         }
         len += 1;
     }
     let next_scale = after.get(len).map_or(0, |w| u32::from(w.exp));
-    p > 0 && len > 0 && group < 10u64.pow(p) && (p == 2 || next_scale < p)
+    let cents = !currency || after.get(len).is_some_and(|w| role(t, w) == ROLE_CURRENCY);
+    p > 0 && len > 0 && cents && group < 10u64.pow(p) && (p == 2 || next_scale < p)
 }
 
 /// The value of the number `words` start with, folded the way the engine
 /// folds it. `None` when the words are not one number ("five six").
-fn lead_value(engine: &Normalizer, words: &[Word]) -> Option<u128> {
+fn lead_value<R: Rules>(engine: &Normalizer, words: &[Word]) -> Option<u128> {
     let t = engine.tables;
     let (mut total, mut cur, mut any) = (0u128, 0u128, false);
     let add = |cur: u128, v: u128| {
@@ -1625,7 +1693,8 @@ fn lead_value(engine: &Normalizer, words: &[Word]) -> Option<u128> {
         let exp = u32::from(w.exp);
         match role(t, w) {
             ROLE_DIGIT | ROLE_TEEN | ROLE_TENS | ROLE_OH => cur = add(cur, v)?,
-            ROLE_HUNDRED => cur = cur.max(1) * 100,
+            ROLE_HUNDRED if v == 100 || !R::WHOLE_HUNDREDS => cur = cur.max(1) * 100,
+            ROLE_HUNDRED => cur = add(cur, v)?,
             ROLE_AND if any => continue,
             ROLE_ORDINAL => {
                 match v {
@@ -1663,7 +1732,7 @@ fn scale_after(t: &Tables, rest: &str) -> Option<(u32, usize)> {
 /// Writes the whole number into the last piece of a split run, whose text
 /// carries a unit, currency or suffix ("$342 and 16 cents"). The piece's first
 /// number must be the value its words say, or the run stays as words.
-fn splice(
+fn splice<R: Rules>(
     engine: &Normalizer,
     piece: &[Word],
     text: &str,
@@ -1671,7 +1740,7 @@ fn splice(
 ) -> Option<String> {
     let a = text.find(|c: char| c.is_ascii_digit())?;
     let len = text[a..]
-        .find(|c: char| !(c.is_ascii_digit() || c == ','))
+        .find(|c: char| !(c.is_ascii_digit() || (R::GROUPED && c == ',')))
         .unwrap_or(text.len() - a);
     let mut b = a + len;
     let mut digits: String = text[a..b].chars().filter(|&c| c != ',').collect();
@@ -1679,7 +1748,7 @@ fn splice(
     if rest.starts_with(':') {
         return None;
     }
-    match rest.strip_prefix('.') {
+    match rest.strip_prefix(R::DECIMAL) {
         Some(frac) if frac.starts_with(|c: char| c.is_ascii_digit()) => {
             let n = frac
                 .find(|c: char| !c.is_ascii_digit())
@@ -1695,19 +1764,19 @@ fn splice(
             }
         }
     }
-    let want = lead_value(engine, piece)?.to_string();
+    let want = lead_value::<R>(engine, piece)?.to_string();
     if digits.trim_start_matches('0') != want.trim_start_matches('0') {
         return None;
     }
     higher.push((want, 0));
-    let whole = group_thousands(&stitch(higher)?);
+    let whole = group_thousands::<R>(&stitch(higher)?);
     Some(format!("{}{whole}{}", &text[..a], &text[b..]))
 }
 
 /// A window the tables could not read, whose one number run has several
 /// groups ("one million seven hundred eighty one thousand nineteen"): reads the
 /// run one group at a time and writes the window. False when that fails too.
-fn push_regrouped<'a>(
+fn push_regrouped<'a, R: Rules>(
     out: &mut String,
     engine: &Normalizer,
     span: &[Word<'a>],
@@ -1724,19 +1793,19 @@ fn push_regrouped<'a>(
             && span[i + 1..b]
                 .iter()
                 .find(|w| role(t, w) != ROLE_AND)
-                .is_some_and(|w| starts_group(t, w))
+                .is_some_and(|w| starts_group::<R>(t, w))
     };
     if !(a..b - 1).any(group_after) || span[b..].iter().any(Word::numeric) {
         return false;
     }
     let mut run = span[a..b].to_vec();
-    elide_and(&mut run, engine, piece.text, 0);
-    let group_next = |i: usize| run.get(i + 1).is_some_and(|w| starts_group(t, w));
+    elide_and::<R>(&mut run, engine, piece.text, 0);
+    let group_next = |i: usize| run.get(i + 1).is_some_and(|w| starts_group::<R>(t, w));
     let scale = |i: usize| run[i].exp != 0 && group_next(i);
     let pieces = split_run(0, run.len(), &scale, &|_| false);
     let Some(text) = pieces
         .filter(|p| p.len() > 1)
-        .and_then(|p| render_run(engine, &run, &p, buf))
+        .and_then(|p| render_run::<R>(engine, &run, &p, buf))
         .filter(|text| !as_spoken(text, &run))
     else {
         return false;
@@ -1900,7 +1969,7 @@ fn render<'b>(
     core::str::from_utf8(&buf[..done.len]).ok()
 }
 
-fn render_run(
+fn render_run<R: Rules>(
     engine: &Normalizer,
     words: &[Word],
     run: &[Window],
@@ -1930,9 +1999,9 @@ fn render_run(
     match piece_digits(engine.tables, text) {
         Some(digits) => {
             pieces.push((digits, 0));
-            stitch(&pieces).map(|n| group_thousands(&n))
+            stitch(&pieces).map(|n| group_thousands::<R>(&n))
         }
-        None => splice(engine, &words[last.start..last.end], text, &mut pieces),
+        None => splice::<R>(engine, &words[last.start..last.end], text, &mut pieces),
     }
 }
 
@@ -1948,7 +2017,10 @@ fn same_words(text: &str, span: &[Word]) -> bool {
     text.len() + 1 == len && text.split(' ').eq(span.iter().map(|w| w.core))
 }
 
-fn group_thousands(digits: &str) -> String {
+fn group_thousands<R: Rules>(digits: &str) -> String {
+    if !R::GROUPED {
+        return digits.into();
+    }
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (k, c) in digits.chars().enumerate() {
         if k > 0 && (digits.len() - k).is_multiple_of(3) {
@@ -1983,8 +2055,8 @@ struct Piece<'a> {
 
 /// Plans a segment's windows.
 #[inline(always)]
-fn plan(t: &Tables, piece: Piece, words: &[Word], windows: &mut WindowBuf) {
-    let group_next = |i: usize| words.get(i + 1).is_some_and(|w| starts_group(t, w));
+fn plan<R: Rules>(t: &Tables, piece: Piece, words: &[Word], windows: &mut WindowBuf) {
+    let group_next = |i: usize| words.get(i + 1).is_some_and(|w| starts_group::<R>(t, w));
     windows_scaled_into(
         windows,
         words.len(),
@@ -2000,7 +2072,7 @@ fn plan(t: &Tables, piece: Piece, words: &[Word], windows: &mut WindowBuf) {
 }
 
 /// `dated` writes a lone ordinal as digits ("the 4th of July").
-fn format_segment<'a>(
+fn format_segment<'a, R: Rules>(
     engine: &Normalizer,
     words: &[Word<'a>],
     piece: Piece<'a>,
@@ -2018,7 +2090,7 @@ fn format_segment<'a>(
         return;
     }
     let Scratch { windows, buf } = scratch;
-    plan(t, piece, words, windows);
+    plan::<R>(t, piece, words, windows);
     let ws = windows.as_slice();
     let mut i = 0;
     while i < ws.len() {
@@ -2031,7 +2103,7 @@ fn format_segment<'a>(
         }
         let span = &words[ws[i].start..ws[j - 1].end];
         if j - i > 1 {
-            match render_run(engine, words, &ws[i..j], buf) {
+            match render_run::<R>(engine, words, &ws[i..j], buf) {
                 Some(text) if !as_spoken(&text, span) => {
                     push_aligned(out, &text, span, piece.plain);
                 }
@@ -2047,7 +2119,7 @@ fn format_segment<'a>(
                 }
                 _ => false,
             };
-            if !read && !(scaled && push_regrouped(out, engine, span, piece, buf)) {
+            if !read && !(scaled && push_regrouped::<R>(out, engine, span, piece, buf)) {
                 push_raw(out, span);
             }
         }
@@ -2399,10 +2471,10 @@ mod tests {
         let numbers = "at two thirty pm we need about twenty five chairs, one hundred and twenty people, and room four oh two by May third.";
         let line = [plain, numbers, plain, plain, numbers].repeat(40).join(" ");
         let mut whole = String::new();
-        format_line_in(&engine, &line, &mut whole, usize::MAX);
+        format_line_in::<English>(&engine, &line, &mut whole, usize::MAX);
         for batch in [1, 16, 64, 300] {
             let mut out = String::new();
-            let most = format_line_in(&engine, &line, &mut out, batch);
+            let most = format_line_in::<English>(&engine, &line, &mut out, batch);
             assert_eq!(out, whole, "batch {batch}");
             assert!(most <= batch + 150, "batch {batch}: {most} words at once");
         }
@@ -2490,10 +2562,10 @@ mod tests {
         let dense = "we paid twenty five dollars, then thirty people came at five thirty pm. it was one hundred and twenty degrees on May third, so room four oh two filled by six and the other one left at ten to four.";
         let line = [dense].repeat(60).join(" ");
         let mut whole = String::new();
-        format_line_in(&engine, &line, &mut whole, usize::MAX);
+        format_line_in::<English>(&engine, &line, &mut whole, usize::MAX);
         for batch in [16, 64, 300] {
             let mut out = String::new();
-            let most = format_line_in(&engine, &line, &mut out, batch);
+            let most = format_line_in::<English>(&engine, &line, &mut out, batch);
             assert_eq!(out, whole, "batch {batch}");
             assert!(most <= batch + 80, "batch {batch}: {most} words at once");
         }

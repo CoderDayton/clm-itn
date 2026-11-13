@@ -1,4 +1,4 @@
-use super::language::{Classes, Language, Literals, VocabSpec, WordKind};
+use super::language::{Classes, Language, Literals, NumberStyle, VocabSpec, WordKind};
 use crate::hash::next_seed;
 use crate::types::{
     CLASS_UNKNOWN, ClassId, DOMAIN_CENTS, DOMAIN_MEASURE, DOMAIN_MEASURE_POWER,
@@ -1599,6 +1599,12 @@ pub static LANGUAGE: Language = Language {
     literals: Literals {
         oclock: " o'clock",
         may: "May ",
+    },
+    numbers: NumberStyle {
+        decimal: ".",
+        grouped: true,
+        pairs: true,
+        fraction_number: false,
     },
     senses: SENSES,
     idioms: IDIOMS,

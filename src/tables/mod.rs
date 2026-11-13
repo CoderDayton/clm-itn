@@ -7,6 +7,7 @@ pub mod english;
 pub mod image;
 pub mod lexicon;
 pub mod shape;
+pub mod spanish;
 
 pub use bundle::{
     Aligned, CENTURIES, HOURS, MAX_CANONICAL, MAX_ZONES, MONTHS, TEXT_LEN, Tables, Text, Vocab,

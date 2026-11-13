@@ -148,8 +148,13 @@ where
     F: Fn(T) -> String,
 {
     let n = values.len();
+    let m = if values.iter().any(|&v| v != base) {
+        "mut "
+    } else {
+        ""
+    };
     let mut s = format!(
-        "{{\n        let mut a: [{ty}; {n}] = [{}; {n}];\n",
+        "{{\n        let {m}a: [{ty}; {n}] = [{}; {n}];\n",
         show(base)
     );
     for (i, &v) in values.iter().enumerate() {

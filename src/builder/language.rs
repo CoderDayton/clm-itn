@@ -73,6 +73,14 @@ pub struct Literals {
     pub may: &'static str,
 }
 
+#[derive(Clone, Copy)]
+pub struct NumberStyle {
+    pub decimal: &'static str,
+    pub grouped: bool,
+    pub pairs: bool,
+    pub fraction_number: bool,
+}
+
 /// Words and spellings the line passes read or write.
 #[derive(Clone, Copy)]
 pub struct VocabSpec {
@@ -98,6 +106,7 @@ pub struct Language {
     pub kinds: &'static [WordKind],
     pub vocab: VocabSpec,
     pub literals: Literals,
+    pub numbers: NumberStyle,
     /// Word-sense bits and the words that carry them.
     pub senses: &'static [(u32, &'static [&'static str])],
     pub idioms: &'static [&'static [&'static str]],

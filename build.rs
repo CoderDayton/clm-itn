@@ -25,10 +25,13 @@ mod tables {
 
 use std::path::PathBuf;
 
-const SOURCES: [&str; 17] = [
+type BuildFn = fn() -> Result<Box<tables::Tables>, builder::BuildError>;
+
+const SOURCES: [&str; 18] = [
     "build.rs",
     "src/builder/mod.rs",
     "src/builder/english.rs",
+    "src/builder/spanish.rs",
     "src/builder/language.rs",
     "src/builder/codegen.rs",
     "src/builder/learn.rs",
@@ -54,10 +57,15 @@ fn main() {
     if std::env::var_os("CARGO_FEATURE_STD").is_none() {
         println!("cargo:rustc-cfg=clm_no_std");
     }
-    let tables = builder::build_english()
-        .unwrap_or_else(|e| panic!("English tables fail validation: {e:?}"));
-    let code = builder::codegen::to_rust(&tables, "ENGLISH");
     let out_dir = std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR for build scripts");
-    let path = PathBuf::from(out_dir).join("english_tables.rs");
-    std::fs::write(&path, code).unwrap_or_else(|e| panic!("write {}: {e}", path.display()));
+    let languages: [(&str, BuildFn); 2] = [
+        ("english", builder::build_english),
+        ("spanish", builder::build_spanish),
+    ];
+    for (name, build) in languages {
+        let tables = build().unwrap_or_else(|e| panic!("{name} tables fail validation: {e:?}"));
+        let code = builder::codegen::to_rust(&tables, &name.to_uppercase());
+        let path = PathBuf::from(&out_dir).join(format!("{name}_tables.rs"));
+        std::fs::write(&path, code).unwrap_or_else(|e| panic!("write {}: {e}", path.display()));
+    }
 }

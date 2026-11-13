@@ -3,6 +3,7 @@ pub mod english;
 pub mod language;
 pub mod learn;
 pub mod learned;
+pub mod spanish;
 
 use std::collections::HashMap;
 
@@ -139,6 +140,10 @@ pub fn build_english() -> Result<Box<Tables>, BuildError> {
 pub fn build_english_with_stats() -> Result<(Box<Tables>, BuildStats), BuildError> {
     let learned = learned::parse(LEARNED).map_err(BuildError::Learned)?;
     build(&english::LANGUAGE, &learned).map(|b| (b.tables, b.stats))
+}
+
+pub fn build_spanish() -> Result<Box<Tables>, BuildError> {
+    build(&spanish::LANGUAGE, &Learned::default()).map(|b| b.tables)
 }
 
 pub struct Built {
@@ -816,11 +821,11 @@ struct Pool {
     programs: Vec<(u8, Vec<u32>)>,
     locals: Vec<HashMap<ProgramId, CandidateId>>,
     colon: u8,
-    dot: u8,
     space: u8,
     oclock: u8,
     on_the_hour: u8,
     hundred_hours: u8,
+    decimal: u8,
     zero_dot: u8,
     comma: u8,
     may: u8,
@@ -835,8 +840,12 @@ impl Pool {
         let oclock = lit(lang.literals.oclock.as_bytes())?;
         let on_the_hour = lit(b":00")?;
         let hundred_hours = lit(b"00")?;
-        let zero_dot = lit(b"0.")?;
+        let zero_dot = lit(format!("0{}", lang.numbers.decimal).as_bytes())?;
         let (comma, may) = (lit(b", ")?, lit(lang.literals.may.as_bytes())?);
+        let decimal = match lang.numbers.decimal {
+            "." => dot,
+            d => lit(d.as_bytes())?,
+        };
         let mut by_text: HashMap<&str, u8> = HashMap::new();
         let mut word_literal = HashMap::new();
         for class in lang.literal_classes {
@@ -859,11 +868,11 @@ impl Pool {
             programs: Vec::new(),
             locals: vec![HashMap::new(); DOMAIN_COUNT],
             colon,
-            dot,
             space,
             oclock,
             on_the_hour,
             hundred_hours,
+            decimal,
             zero_dot,
             comma,
             may,
@@ -1008,7 +1017,7 @@ impl Pool {
         if !rest.is_empty() {
             ops.extend([
                 op::fold(3, rest.len() as u8),
-                op::lit(self.dot),
+                op::lit(self.decimal),
                 op::emit(3, 2),
             ]);
         }
@@ -1018,13 +1027,18 @@ impl Pool {
     /// The written number for `roles`; `group` is how integer parts take
     /// thousands commas (an `op::GROUP*` value).
     fn amount(&self, roles: &[Role], group: u8) -> Vec<u32> {
+        let style = self.lang.numbers;
+        let group = if style.grouped { group } else { op::GROUP_NONE };
         let n = roles.len();
         let n8 = n as u8;
         let scaled = n >= 2 && matches!(roles[n - 1], ROLE_SCALE | ROLE_MSCALE);
         if let Some(p) = roles.iter().position(|&r| r == ROLE_POINT) {
             let frac = (n - p - 1 - usize::from(scaled)) as u8;
             // "one point eighty two" is 1.82, not 1.802.
-            let pair = p > 0 && two_digit_group(&roles[p + 1..p + 1 + frac as usize]);
+            let fraction = &roles[p + 1..p + 1 + frac as usize];
+            let spelled = !fraction.iter().all(|&r| r == ROLE_DIGIT || r == ROLE_OH);
+            let whole = style.fraction_number && spelled;
+            let pair = whole || (p > 0 && two_digit_group(fraction));
             let mut ops = Vec::with_capacity(8);
             if p > 0 {
                 ops.push(op::fold(0, p as u8));
@@ -1037,19 +1051,24 @@ impl Pool {
             });
             if p > 0 {
                 ops.push(op::emit_grouped(0, group));
-                ops.push(op::lit(self.dot));
+                ops.push(op::lit(self.decimal));
             } else {
                 ops.push(op::lit(self.zero_dot));
             }
-            ops.push(op::emit(1, if pair { 2 } else { frac }));
+            ops.push(op::emit(
+                1,
+                match (whole, pair) {
+                    (true, _) => 0,
+                    (false, true) => 2,
+                    (false, false) => frac,
+                },
+            ));
             if scaled {
                 ops.extend([op::lit(self.space), op::raw(1)]);
             }
             return ops;
         }
-        let higher = roles[..n.saturating_sub(1)]
-            .iter()
-            .any(|r| matches!(*r, ROLE_SCALE | ROLE_MSCALE));
+        let higher = roles[..n.saturating_sub(1)].contains(&ROLE_MSCALE);
         if n >= 2 && roles[n - 1] == ROLE_MSCALE && !higher {
             return vec![
                 op::fold(0, n8 - 1),
@@ -1064,7 +1083,7 @@ impl Pool {
         if n >= 2 && roles.iter().all(|&r| r == ROLE_DIGIT || r == ROLE_OH) {
             return vec![op::digits(0, n8), op::emit(0, n8)];
         }
-        if roles.first() == Some(&ROLE_DIGIT) && two_digit_group(&roles[1..]) {
+        if style.pairs && roles.first() == Some(&ROLE_DIGIT) && two_digit_group(&roles[1..]) {
             return vec![
                 op::fold(0, 1),
                 op::fold(1, n8 - 1),
@@ -1209,7 +1228,7 @@ impl Pool {
     }
 
     fn year(&mut self, roles: &[Role]) -> Result<Option<ProgramId>, BuildError> {
-        let Some(a) = pair_split(roles) else {
+        let Some(a) = self.pair_split(roles) else {
             return Ok(None);
         };
         let b = roles.len() - a;
@@ -1231,7 +1250,7 @@ impl Pool {
             let mut ops = vec![op::fold(0, (k + 1) as u8), op::emit(0, 0), op::ord(0)];
             if !rest.is_empty() {
                 ops.push(op::lit(self.space));
-                match pair_split(rest) {
+                match self.pair_split(rest) {
                     Some(a) => ops.extend([
                         op::fold(1, a as u8),
                         op::fold(2, (rest.len() - a) as u8),
@@ -1256,7 +1275,7 @@ impl Pool {
             let rest = &roles[k + 1..];
             let mut ops = vec![op::fold(0, (k + 1) as u8), op::emit(0, 0), op::ord(0)];
             if !rest.is_empty() {
-                let split = pair_split(rest);
+                let split = self.pair_split(rest);
                 let year = split.is_some() || rest.len() >= 2;
                 let sep = if comma && year {
                     self.comma
@@ -1277,7 +1296,7 @@ impl Pool {
             }
             return Some(ops);
         }
-        let a = pair_split(roles)?;
+        let a = self.pair_split(roles)?;
         Some(vec![
             op::fold(0, a as u8),
             op::fold(1, (roles.len() - a) as u8),
@@ -1314,6 +1333,10 @@ impl Pool {
             out.push((domain, list));
         }
         Ok(out)
+    }
+
+    fn pair_split(&self, roles: &[Role]) -> Option<usize> {
+        self.lang.numbers.pairs.then(|| pair_split(roles)).flatten()
     }
 
     fn raw(&mut self, n: usize) -> Result<ProgramId, BuildError> {

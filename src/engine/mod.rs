@@ -3,6 +3,8 @@
 pub mod span;
 pub mod window;
 
+use window::rules::Lang;
+
 use alloc::string::String;
 
 use crate::tables::context::{abstains, select};
@@ -43,6 +45,7 @@ pub struct Formatted {
 pub struct Normalizer<'t> {
     tables: &'t Tables,
     off: SettingBits,
+    lang: Lang,
 }
 
 struct Off(SettingBits);
@@ -107,7 +110,11 @@ pub trait Internals<'t>: Sized {
 #[cfg(feature = "internals")]
 impl<'t> Internals<'t> for Normalizer<'t> {
     fn new(tables: &'t Tables) -> Self {
-        Normalizer { tables, off: 0 }
+        Normalizer {
+            tables,
+            off: 0,
+            lang: Lang::English,
+        }
     }
 
     fn tables(&self) -> &'t Tables {
@@ -152,6 +159,18 @@ impl Normalizer<'static> {
         Normalizer {
             tables: crate::tables::english::english(),
             off: Setting::SingleDigits.bit(),
+            lang: Lang::English,
+        }
+    }
+
+    /// A normalizer over the built-in Spanish tables. Building it allocates
+    /// nothing.
+    #[must_use]
+    pub fn spanish() -> Normalizer<'static> {
+        Normalizer {
+            tables: crate::tables::spanish::spanish(),
+            off: Setting::SingleDigits.bit(),
+            lang: Lang::Spanish,
         }
     }
 }
