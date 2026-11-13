@@ -65,6 +65,9 @@ const CASES: &[(&str, &str)] = &[
         "el treinta y uno de diciembre de mil novecientos noventa y dos",
         "el 31 de diciembre de 1992",
     ),
+    ("el año dos mil veinticuatro", "el año 2024"),
+    ("en el año mil novecientos noventa", "en el año 1990"),
+    ("la semana treinta y dos", "la semana 32"),
     ("dos de los niños", "dos de los niños"),
     ("café con leche", "café con leche"),
 ];

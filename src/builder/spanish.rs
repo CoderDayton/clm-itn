@@ -878,7 +878,7 @@ pub static LANGUAGE: Language = Language {
     suffix_roles: SUFFIX_ROLES,
     prefix_roles: PREFIX_ROLES,
     bind_roles: BIND_ROLES,
-    lead_skip_roles: 1 << ROLE_AMPM,
+    lead_skip_roles: (1 << ROLE_AMPM) | (1 << ROLE_UNIT),
     left_folds: [[TO, THE, AT], [IS, THE, AT]],
     aliases: &[
         (TO, CLASS_UNKNOWN),
