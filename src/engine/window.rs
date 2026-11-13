@@ -12,7 +12,7 @@ use crate::types::{
     ROLE_MSCALE, ROLE_OH, ROLE_ORDINAL, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting, TokenInfo, kind,
     name, sense,
 };
-use rules::{English, Lang, Rules, Spanish};
+use rules::{English, Lang, Portuguese, Rules, Spanish};
 
 const LINE_OUT: usize = 512;
 const LEAD_PUNCT: &[char] = &['"', '\'', '(', '[', '{', '\u{201C}', '\u{2018}', '\u{00AB}'];
@@ -1141,6 +1141,7 @@ pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
     match engine.lang {
         Lang::English => format_line_in::<English>(engine, line, out, BATCH_WORDS),
         Lang::Spanish => format_line_in::<Spanish>(engine, line, out, BATCH_WORDS),
+        Lang::Portuguese => format_line_in::<Portuguese>(engine, line, out, BATCH_WORDS),
     };
 }
 
@@ -2107,6 +2108,7 @@ fn format_segment<'a, R: Rules>(
                 Some(text) if !as_spoken(&text, span) => {
                     push_aligned(out, &text, span, piece.plain);
                 }
+                _ if push_cents::<R>(out, engine, span, buf) => {}
                 _ => push_raw(out, span),
             }
         } else {
@@ -2119,12 +2121,77 @@ fn format_segment<'a, R: Rules>(
                 }
                 _ => false,
             };
-            if !read && !(scaled && push_regrouped::<R>(out, engine, span, piece, buf)) {
+            if !read
+                && !(scaled && push_regrouped::<R>(out, engine, span, piece, buf))
+                && !push_cents::<R>(out, engine, span, buf)
+            {
                 push_raw(out, span);
             }
         }
         i = j;
     }
+}
+
+fn push_cents<R: Rules>(
+    out: &mut String,
+    engine: &Normalizer,
+    span: &[Word],
+    buf: &mut [u8; LINE_OUT],
+) -> bool {
+    if !R::CENTS_AFTER_CURRENCY {
+        return false;
+    }
+    let t = engine.tables;
+    let Some(a) = span.iter().position(Word::numeric) else {
+        return false;
+    };
+    let currency = |w: &Word| role(t, w) == ROLE_CURRENCY;
+    let Some(c) = span[a..].iter().position(currency).map(|c| a + c) else {
+        return false;
+    };
+    if !span.get(c + 1).is_some_and(|w| role(t, w) == ROLE_AND) {
+        return false;
+    }
+    let from = c + 2;
+    let to = from
+        + span[from..]
+            .iter()
+            .take_while(|w| w.value() || role(t, w) == ROLE_AND)
+            .count();
+    let named = span.get(to).is_some_and(currency);
+    let rest = if named { to + 1 } else { to };
+    if to == from || span[rest..].iter().any(Word::numeric) {
+        return false;
+    }
+    let Some(cents) = lead_value::<R>(engine, &span[from..to]).filter(|&v| v < 100) else {
+        return false;
+    };
+    let major = Window {
+        start: a,
+        end: c + 1,
+        raw: false,
+        join: false,
+    };
+    let Some(text) = render(engine, span, &major, buf) else {
+        return false;
+    };
+    if same_words(text, &span[a..=c]) || !text.ends_with(|ch: char| ch.is_ascii_digit()) {
+        return false;
+    }
+    if text.contains(R::DECIMAL) {
+        return false;
+    }
+    let text = format!("{text}{}{cents:02}", R::DECIMAL);
+    push_raw(out, &span[..a]);
+    if a > 0 {
+        out.push_str(sep(span[a].gap));
+    }
+    out.push_str(&text);
+    if rest < span.len() {
+        out.push_str(sep(span[rest].gap));
+        push_raw(out, &span[rest..]);
+    }
+    true
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

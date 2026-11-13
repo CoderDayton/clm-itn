@@ -6,6 +6,7 @@ pub mod english;
 #[cfg(all(feature = "internals", not(clm_no_std)))]
 pub mod image;
 pub mod lexicon;
+pub mod portuguese;
 pub mod shape;
 pub mod spanish;
 

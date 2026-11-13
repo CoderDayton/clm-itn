@@ -173,6 +173,17 @@ impl Normalizer<'static> {
             lang: Lang::Spanish,
         }
     }
+
+    /// A normalizer over the built-in Portuguese tables. Building it
+    /// allocates nothing.
+    #[must_use]
+    pub fn portuguese() -> Normalizer<'static> {
+        Normalizer {
+            tables: crate::tables::portuguese::portuguese(),
+            off: Setting::SingleDigits.bit(),
+            lang: Lang::Portuguese,
+        }
+    }
 }
 
 impl<'t> Normalizer<'t> {

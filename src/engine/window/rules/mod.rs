@@ -1,4 +1,6 @@
 mod english;
+mod portuguese;
+mod shared;
 mod spanish;
 
 use super::Word;
@@ -6,6 +8,7 @@ use crate::tables::Tables;
 use alloc::vec::Vec;
 
 pub(super) use english::English;
+pub(super) use portuguese::Portuguese;
 pub(super) use spanish::Spanish;
 
 pub(super) trait Rules {
@@ -33,4 +36,5 @@ pub(super) trait Rules {
 pub enum Lang {
     English,
     Spanish,
+    Portuguese,
 }

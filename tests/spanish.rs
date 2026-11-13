@@ -14,6 +14,11 @@ const CASES: &[(&str, &str)] = &[
     ("las veintitrés y media", "las veintitrés y media"),
     ("las dos menos veinte", "las dos menos veinte"),
     ("a las tres y diez", "a las 3:10"),
+    ("cien dólares y noventa y nueve centavos", "$100,99"),
+    (
+        "pagué ciento noventa y nueve dólares y noventa y nueve centavos ayer",
+        "pagué $199,99 ayer",
+    ),
     ("las dos a eme", "las 2 am"),
     ("la una y diez pe eme", "la 1:10 pm"),
     ("una casa a eme", "una casa a eme"),

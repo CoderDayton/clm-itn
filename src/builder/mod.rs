@@ -3,6 +3,7 @@ pub mod english;
 pub mod language;
 pub mod learn;
 pub mod learned;
+pub mod portuguese;
 pub mod spanish;
 
 use std::collections::HashMap;
@@ -144,6 +145,10 @@ pub fn build_english_with_stats() -> Result<(Box<Tables>, BuildStats), BuildErro
 
 pub fn build_spanish() -> Result<Box<Tables>, BuildError> {
     build(&spanish::LANGUAGE, &Learned::default()).map(|b| b.tables)
+}
+
+pub fn build_portuguese() -> Result<Box<Tables>, BuildError> {
+    build(&portuguese::LANGUAGE, &Learned::default()).map(|b| b.tables)
 }
 
 pub struct Built {

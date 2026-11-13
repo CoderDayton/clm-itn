@@ -634,7 +634,7 @@ fn money(s: &mut Sink) {
                 s.push(words, SRC_CARDINAL, w, "money");
                 continue;
             }
-            2..=7 => one(s.number(2)),
+            2..=7 => one(s.number(3)),
             _ => one(s.number(7)),
         };
         words.push(if words == ["un"] { unit } else { units });
