@@ -14,13 +14,15 @@ default-run = "clm-itn"
 exclude = [".github/", "CLAUDE.md", "Scripts.toml", "lefthook.yml", "tools/", "tests/data/itn_benchmark.jsonl"]
 
 [features]
-default = ["std"]
+default = ["std", "german"]
 # Off: `#![no_std]` with `alloc`.
 std = []
 # Unstable engine internals for this repo's tests, bench and clm-learn. Not public API.
 internals = ["std"]
+german = ["std", "dep:morph-fst"]
 
 [dependencies]
+morph-fst = { path = "../morph-fst", optional = true }
 
 [dev-dependencies]
 # Turns on `internals` for tests and the bench only.

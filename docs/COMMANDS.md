@@ -57,7 +57,7 @@ The same tasks run through `cargo script`: `build`, `release`, `test`, `doc`.
 ## Lint
 
 ```bash
-cargo fmt --all
+cargo fmt
 cargo clippy --all-targets --all-features -- -D warnings
 cargo clippy --lib --no-default-features -- -D warnings
 ```

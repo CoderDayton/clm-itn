@@ -79,6 +79,7 @@ pub struct NumberStyle {
     pub grouped: bool,
     pub pairs: bool,
     pub fraction_number: bool,
+    pub currency_after: bool,
 }
 
 /// Words and spellings the line passes read or write.

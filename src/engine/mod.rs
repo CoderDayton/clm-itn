@@ -184,6 +184,18 @@ impl Normalizer<'static> {
             lang: Lang::Portuguese,
         }
     }
+
+    /// A normalizer over the built-in German tables.
+    #[cfg(feature = "german")]
+    #[must_use]
+    pub fn german() -> Normalizer<'static> {
+        let _ = crate::engine::window::rules::german_lexer();
+        Normalizer {
+            tables: crate::tables::german::german(),
+            off: Setting::SingleDigits.bit(),
+            lang: Lang::German,
+        }
+    }
 }
 
 impl<'t> Normalizer<'t> {

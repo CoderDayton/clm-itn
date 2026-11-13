@@ -2,13 +2,10 @@
 
 Planned work that is not built yet.
 
-## Lexicon interface
+## morph-fst
 
-Replace the compiled word list with a `Lexicon` trait so a lookup stage can be swapped at run time. An optional adapter would back it with morph-fst for languages where listing every word form is impractical. Open points:
+German splits compound numbers ("zweihundertfünfundvierzig") with a morph-fst grammar, `src/engine/window/rules/german.morph`, behind the `german` feature. Open points:
 
-- Lookup cost on the hot path against the current cuckoo hash.
-- A path dependency on morph-fst blocks `cargo publish`; the alternative is a build-time word-list generator for a `Language`.
-
-## Second language
-
-Add a non-English `Language`. The engine already reads only table-carried words (proved by the respelled-word test), so the remaining work is in the builder: number-grammar programs for forms English lacks, such as Spanish "cuatrocientos", plus a language's examples, idioms and vocab.
+- The path dependency on morph-fst blocks `cargo publish` until morph-fst is published and the dependency names a version.
+- Each compound costs 1–2 µs in morph-fst's `lex`: lattice building, allocation and the subword pass dominate. An allocation-free segmentation call in morph-fst would cut it.
+- Spanish and Portuguese still list their inflected forms in the builder; moving them onto morph-fst grammars is next.

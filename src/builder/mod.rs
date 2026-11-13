@@ -1,5 +1,6 @@
 pub mod codegen;
 pub mod english;
+pub mod german;
 pub mod language;
 pub mod learn;
 pub mod learned;
@@ -149,6 +150,10 @@ pub fn build_spanish() -> Result<Box<Tables>, BuildError> {
 
 pub fn build_portuguese() -> Result<Box<Tables>, BuildError> {
     build(&portuguese::LANGUAGE, &Learned::default()).map(|b| b.tables)
+}
+
+pub fn build_german() -> Result<Box<Tables>, BuildError> {
+    build(&german::LANGUAGE, &Learned::default()).map(|b| b.tables)
 }
 
 pub struct Built {
@@ -1011,7 +1016,12 @@ impl Pool {
             .iter()
             .position(|&r| r == ROLE_CURRENCY)
             .filter(|&d| d > 0)?;
-        let mut ops = vec![op::litv(d as u8)];
+        let after = self.lang.numbers.currency_after;
+        let mut ops = if after {
+            Vec::new()
+        } else {
+            vec![op::litv(d as u8)]
+        };
         ops.extend(self.amount(&roles[..d], op::GROUP));
         ops.push(op::skip(1));
         let mut rest = &roles[d + 1..];
@@ -1025,6 +1035,9 @@ impl Pool {
                 op::lit(self.decimal),
                 op::emit(3, 2),
             ]);
+        }
+        if after {
+            ops.extend([op::lit(self.space), op::litv(d as u8)]);
         }
         Some(ops)
     }
@@ -1159,6 +1172,11 @@ impl Pool {
         let n = roles.len();
         let affix = n as u8;
         let ops = match AFFIX_DOMAINS[slot].0 {
+            DOMAIN_MONEY if self.lang.numbers.currency_after => [
+                &self.amount(roles, op::GROUP)[..],
+                &[op::lit(self.space), op::litv(affix), op::skip(1)],
+            ]
+            .concat(),
             DOMAIN_MONEY => [
                 &[op::litv(affix)][..],
                 &self.amount(roles, op::GROUP),

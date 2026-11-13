@@ -11,6 +11,6 @@ bench = { command = "cargo bench --bench clm-bench", info = "normalize p99 gate 
 bench-tiers = { command = "cargo bench --bench clm-bench -- --tiers", info = "The gate plus the table engine's per-tier split" }
 bench-corpus = { interpreter = "bash", command = 'cargo bench --bench clm-bench -- --corpus "${CORPUS:-tests/data}"', info = "Score (right/wrong) and time normalize over each .jsonl/.tsv/.txt file in a folder (--env CORPUS=<file|folder>, default tests/data)" }
 bench-paragraph = { command = "cargo bench --bench clm-bench -- --corpus tests/data/paragraph.jsonl --passes 10000 --sentences", info = "Score and time normalize on a 168-word paragraph, whole and sentence by sentence" }
-lint = { command = "cargo fmt --all && cargo clippy --all-targets --all-features -- -D warnings", info = "Format code, then run clippy with warnings as errors" }
-lint-ci = { command = "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo script lint-lib", info = "Check formatting without changing files, then run clippy with warnings as errors, with and without std" }
+lint = { command = "cargo fmt && cargo clippy --all-targets --all-features -- -D warnings", info = "Format code, then run clippy with warnings as errors" }
+lint-ci = { command = "cargo fmt -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo script lint-lib", info = "Check formatting without changing files, then run clippy with warnings as errors, with and without std" }
 lint-lib = { command = "cargo clippy --lib -- -D warnings && cargo clippy --lib --no-default-features -- -D warnings", info = "Run clippy on the library as users build it: std, and no_std" }

@@ -870,6 +870,7 @@ pub static LANGUAGE: Language = Language {
         grouped: false,
         pairs: false,
         fraction_number: true,
+        currency_after: false,
     },
     senses: SENSES,
     idioms: IDIOMS,

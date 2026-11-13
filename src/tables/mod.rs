@@ -3,6 +3,8 @@ pub mod candidate;
 pub mod cell;
 pub mod context;
 pub mod english;
+#[cfg(feature = "german")]
+pub mod german;
 #[cfg(all(feature = "internals", not(clm_no_std)))]
 pub mod image;
 pub mod lexicon;

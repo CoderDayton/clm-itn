@@ -7,4 +7,9 @@ name = "clm-itn"
 version = "0.1.0"
 dependencies = [
  "clm-itn",
+ "morph-fst",
 ]
+
+[[package]]
+name = "morph-fst"
+version = "0.1.0"

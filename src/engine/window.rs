@@ -12,6 +12,8 @@ use crate::types::{
     ROLE_MSCALE, ROLE_OH, ROLE_ORDINAL, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting, TokenInfo, kind,
     name, sense,
 };
+#[cfg(feature = "german")]
+use rules::German;
 use rules::{English, Lang, Portuguese, Rules, Spanish};
 
 const LINE_OUT: usize = 512;
@@ -1142,6 +1144,8 @@ pub fn format_line(engine: &Normalizer, line: &str, out: &mut String) {
         Lang::English => format_line_in::<English>(engine, line, out, BATCH_WORDS),
         Lang::Spanish => format_line_in::<Spanish>(engine, line, out, BATCH_WORDS),
         Lang::Portuguese => format_line_in::<Portuguese>(engine, line, out, BATCH_WORDS),
+        #[cfg(feature = "german")]
+        Lang::German => format_line_in::<German>(engine, line, out, BATCH_WORDS),
     };
 }
 

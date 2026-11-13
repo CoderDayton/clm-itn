@@ -1605,6 +1605,7 @@ pub static LANGUAGE: Language = Language {
         grouped: true,
         pairs: true,
         fraction_number: false,
+        currency_after: false,
     },
     senses: SENSES,
     idioms: IDIOMS,

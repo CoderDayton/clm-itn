@@ -27,12 +27,13 @@ use std::path::PathBuf;
 
 type BuildFn = fn() -> Result<Box<tables::Tables>, builder::BuildError>;
 
-const SOURCES: [&str; 19] = [
+const SOURCES: [&str; 20] = [
     "build.rs",
     "src/builder/mod.rs",
     "src/builder/english.rs",
     "src/builder/spanish.rs",
     "src/builder/portuguese.rs",
+    "src/builder/german.rs",
     "src/builder/language.rs",
     "src/builder/codegen.rs",
     "src/builder/learn.rs",
@@ -59,10 +60,11 @@ fn main() {
         println!("cargo:rustc-cfg=clm_no_std");
     }
     let out_dir = std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR for build scripts");
-    let languages: [(&str, BuildFn); 3] = [
+    let languages: [(&str, BuildFn); 4] = [
         ("english", builder::build_english),
         ("spanish", builder::build_spanish),
         ("portuguese", builder::build_portuguese),
+        ("german", builder::build_german),
     ];
     for (name, build) in languages {
         let tables = build().unwrap_or_else(|e| panic!("{name} tables fail validation: {e:?}"));
