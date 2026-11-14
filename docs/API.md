@@ -10,7 +10,7 @@ Every public export of the `clm_itn` crate, its Cargo features, and its command-
 
 ## Rules that apply everywhere
 
-- Input is spoken-form English, lowercase or cased. Words not in the lexicon, and digits already in the input, pass through with their original bytes and case.
+- Input is spoken-form text in the normalizer's language (English, Spanish, Portuguese or German), lowercase or cased. A normalizer reads only its own language; words of another language pass through. Words not in the lexicon, and digits already in the input, pass through with their original bytes and case.
 - Output is deterministic: the same input and settings always give the same output.
 - `normalize` cannot fail and does not panic on random lines (`tests/fuzz.rs`).
 - `Setting` is `#[non_exhaustive]`, so a `match` on it needs a `_` arm.
@@ -27,6 +27,28 @@ pub fn english() -> Normalizer<'static>
 ```
 
 A normalizer over the built-in English tables, which are compiled into the binary, with every setting on except `SingleDigits`. Allocates nothing. `Normalizer::default()` is the same normalizer.
+
+### Normalizer::spanish, Normalizer::portuguese, Normalizer::german
+
+```rust
+pub fn spanish() -> Normalizer<'static>
+pub fn portuguese() -> Normalizer<'static>
+pub fn german() -> Normalizer<'static> // `german` feature, on by default
+```
+
+Normalizers over the built-in Spanish, Portuguese and German tables, with the same settings as `english()`. Allocate nothing. Each writes numbers the way its language does:
+
+| | Spanish | Portuguese | German |
+|---|---|---|---|
+| Decimal | `3,14` | `3,14` | `3,14` |
+| Thousands | `1234`, no separator | `1234` | `1234` |
+| Money | `$12,05`, `€20,50` | `R$ 12,05`, `€ 12,05` | `12,05 €` |
+| Percent | `50 %` | `50 %` | `50 %` |
+| Scale words | `2 millones`, `$2 millones` | `2 milhões`, `R$ 2 milhões` | `2 millionen` |
+
+- Time phrases that count toward or past an hour stay as spoken, as in English: "diez para las doce", "las dos y media", "quinze para as três", "viertel vor zwölf". Clock readings are written: "a las tres y diez" → `a las 3:10`, "às duas e dez" → `às 2:10`, "acht uhr sieben" → `8 uhr 7`.
+- Spanish reads "mil millones" as 10⁹ and keeps the words when they stand alone ("mil millones de pesos"). Portuguese reads "e" between groups ("um bilhão e mil cento e um" → `1000001101`).
+- German splits compound numbers: "zweihundertundfünfundvierzig" → `245`, including "zwo", "dreissig" and "hundertund" forms.
 
 ### Normalizer::without
 

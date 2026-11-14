@@ -73,9 +73,10 @@ taskset -c 2 cargo bench --bench clm-bench                  # p99 gate
 taskset -c 2 cargo bench --bench clm-bench -- --tiers       # plus per-stage split
 taskset -c 2 cargo bench --bench clm-bench -- --corpus tests/data
 taskset -c 2 cargo bench --bench clm-bench -- --corpus tests/data/paragraph.jsonl --passes 10000 --sentences
+cargo bench --bench clm-bench -- --accuracy en+digits:tests/data --accuracy es:<nemo>/es   # accuracy per language
 ```
 
-`cargo script bench`, `bench-tiers`, `bench-corpus` and `bench-paragraph` run the same commands. Method and results are in [PERFORMANCE.md](PERFORMANCE.md).
+`cargo script bench`, `bench-tiers`, `bench-corpus`, `bench-paragraph` and `bench-accuracy` run the same commands. Method and results are in [PERFORMANCE.md](PERFORMANCE.md).
 
 ## Rebuild the tables
 

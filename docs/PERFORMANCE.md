@@ -1,6 +1,6 @@
 # Performance
 
-Measured latency, memory and allocation counts for `Normalizer::normalize`, how they were taken, what a call costs, and what cannot be improved.
+Measured latency, memory, allocation counts and accuracy for `Normalizer::normalize`, how they were taken, what a call costs, and what cannot be improved.
 
 - [Verdict](#verdict)
 - [How the numbers were taken](#how-the-numbers-were-taken)
@@ -115,6 +115,20 @@ Peak memory of one `normalize_into` call, with `out` reserved before the call so
 
 Memory does not grow with the line. A line of only number words, such as "one, two, three, four, five," repeated to 800,000 words, has no place to cut and takes 137 MiB of RSS, about 180 bytes per word (2.3 MiB at 8,000 words, 15.6 MiB at 80,000). Without a reserved `out`, growing the output adds 1 to 2.4 times the output size at the peak; the output is about the size of the input, 5.3 MB per 10⁶ words.
 
+### Accuracy
+
+`cargo bench --bench clm-bench -- --accuracy en+digits:tests/data --accuracy es:<nemo>/es --accuracy pt:<nemo>/pt --accuracy de:<nemo>/de`, run on 2026-11-13. English uses the repo's gold sets; Spanish, Portuguese and German use every test-case file of NVIDIA NeMo-text-processing's ITN grammars (Apache-2.0), kept outside the repo. Exact means the output equals the written form; values means the same numbers in the same order, ignoring currency and unit placement, case, and `.` or `,` inside a number.
+
+| Language   | Lines | Exact  | Values |
+| ---------- | ----- | ------ | ------ |
+| English    | 612   | 100.0% | 100.0% |
+| Spanish    | 379   | 53.3%  | 69.1%  |
+| Portuguese | 186   | 64.0%  | 72.6%  |
+| German     | 147   | 50.3%  | 77.6%  |
+| Average    |       | 66.9%  | 79.8%  |
+
+The English gold sets were written alongside the engine, so English is not comparable with the NeMo rows. Most NeMo misses are cases CLM-ITN leaves as spoken on purpose: relative times ("viertel vor zwölf"), ordinals, phone numbers and unit abbreviations ("200 m" for "doscientos metros").
+
 ## Cost model
 
 `normalize` reads the line into a word list, looking each word up in the lexicon once. It then applies the line rules: joins, word sense, run guards and relative times. Next it plans windows of at most 8 words and runs the table engine with the lookups it already has on each window that holds a number word; other windows print as written. The table engine does a fixed amount of work per window: no loops over table contents, no sorting, no allocation.
@@ -142,4 +156,5 @@ The lexicon build starts at the fewest buckets, a power of two, that keep it at 
 - **Headroom:** p99 is 85% of the budget.
 - **Max is not bounded:** the slowest single call ranged from 13.5 to 20.5 µs across gate runs. This is a time-shared OS, and only p99 and allocations are gated.
 - **AArch64 has never run:** the NEON lookup and the `cntvct_el0` timer compile and pass clippy, but no ARM hardware has run them. On cores before Armv8.6 (Apple M1: 24 MHz, about 42 ns per tick), the counter fails the resolution gate, and the bench needs the PMU cycle counter with the core frequency locked.
+- **Only English is timed:** `--corpus` and the gate run `Normalizer::english()`. `--accuracy` scores the other languages but does not time them.
 - **Cache-cold calls are not measured:** the numbers come after a full warm-up pass.

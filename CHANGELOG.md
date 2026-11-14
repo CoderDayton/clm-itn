@@ -16,6 +16,8 @@ follows [Semantic Versioning](https://semver.org/).
 - `clm-itn` command line: text arguments, `-f <FILE>`, or a stdin filter; `--json` output; `--no-<setting>` and `--single-digits` flags with combinable short forms (`-dp`); help when run bare in a terminal.
 - `clm-learn` table builder and `clm-bench` for scoring and timing corpora.
 - A `Language` definition the table builder reads; the engine takes every word it matches or writes from the tables. Built tables can be saved to and loaded from bytes (`internals`).
+- Spanish, Portuguese and German: `Normalizer::spanish`, `Normalizer::portuguese` and `Normalizer::german` (`german` feature, on by default), each with its own tables and line rules.
+- `clm-bench --accuracy <lang>[+digits]:<path>`: exact and value accuracy per language and their average; corpus files also read `spoken~written` lines.
 
 ### Performance
 - 841–847 ns p99 per utterance of up to 8 tokens.
