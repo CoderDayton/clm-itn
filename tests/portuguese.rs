@@ -112,6 +112,12 @@ const CASES: &[(&str, &str)] = &[
     ("vinte e trinta", "20 e 30"),
     ("dois mil e três mil", "2000 e 3000"),
     ("às onze e trinta", "às 11:30"),
+    ("um bilhão e mil cento e um", "1000001101"),
+    ("um milhão e mil", "1001000"),
+    ("às quinze pra meia noite", "às quinze pra meia noite"),
+    ("vinte reais cinquenta centavos", "R$ 20,50"),
+    ("dois milhões de reais", "R$ 2 milhões"),
+    ("um milhão de pessoas", "1 milhão de pessoas"),
 ];
 
 #[test]

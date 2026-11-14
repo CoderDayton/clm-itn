@@ -17,6 +17,7 @@ const SPOKEN: Spoken = Spoken {
     digits: [
         "zero", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove",
     ],
+    of: &["de"],
     adjectives: &[
         (
             DOLLARS,
@@ -59,7 +60,13 @@ impl Rules for Portuguese {
             let [e, v, ..] = words.get(i + 1..)? else {
                 return None;
             };
-            let drop = big_scale(t, &w)
+            let run = words[i + 2..].iter().take_while(|x| x.numeric()).count();
+            let scale_follows = words[i + 2..i + 2 + run]
+                .iter()
+                .rev()
+                .skip(1)
+                .any(|x| x.exp > 0);
+            let drop = (big_scale(t, &w) || (w.exp >= 6 && scale_follows))
                 && open(&w, e)
                 && open(e, v)
                 && is(e, &["e"])
@@ -96,7 +103,7 @@ fn before_hour(t: &Tables, words: &[Word], i: usize) -> Option<(usize, usize)> {
         i + 1
     } else if is(&words[i], &["para", "pra"]) && is(next, ARTICLES) {
         i + 2
-    } else if is(&words[i], &["para", "pra"]) && is(next, &["uma"]) {
+    } else if is(&words[i], &["para", "pra"]) && is(next, &["uma", "meia", "meio"]) {
         i + 1
     } else {
         return None;

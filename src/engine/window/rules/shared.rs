@@ -3,8 +3,8 @@ use alloc::vec::Vec;
 use super::super::{W_CUT, Word, bare, joined, open, role, tag};
 use crate::tables::Tables;
 use crate::types::{
-    ROLE_AND, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE, ROLE_OH, ROLE_POINT, ROLE_SCALE, ROLE_TEEN,
-    ROLE_TENS,
+    ROLE_AND, ROLE_CURRENCY, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE, ROLE_OH, ROLE_POINT,
+    ROLE_SCALE, ROLE_TEEN, ROLE_TENS,
 };
 
 pub(super) struct Spoken {
@@ -12,6 +12,7 @@ pub(super) struct Spoken {
     pub and_after_hundred: bool,
     pub clock: &'static [&'static str],
     pub digits: [&'static str; 10],
+    pub of: &'static [&'static str],
     pub adjectives: &'static [(
         &'static [&'static str],
         &'static [&'static str],
@@ -45,6 +46,21 @@ pub(super) fn rewrite<'a>(
         let w = words[i];
         if let Some(j) = join(&words, i) {
             out.push(j);
+            i += 2;
+            continue;
+        }
+        if let [n, c, ..] = &words[i + 1..]
+            && w.exp >= 6
+            && out.last().is_some_and(Word::value)
+            && is(n, s.of)
+            && role(t, c) == ROLE_CURRENCY
+            && open(&w, n)
+            && open(n, c)
+        {
+            out.push(Word {
+                said: joined(line, w.core, n.core).unwrap_or(w.core),
+                ..w
+            });
             i += 2;
             continue;
         }

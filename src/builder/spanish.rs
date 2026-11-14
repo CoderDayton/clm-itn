@@ -615,14 +615,8 @@ fn cardinals(s: &mut Sink) {
         }
         s.push(words, SRC_CARDINAL, 0.2 / 999.0, "cardinal");
     }
-    let mut seen = std::collections::HashSet::new();
     let mut groups = vec![0u64, 2];
-    for g in 1..1000u64 {
-        let roles: Vec<u8> = cardinal(g).iter().map(|w| role_of(w)).collect();
-        if seen.insert(roles) {
-            groups.push(g);
-        }
-    }
+    groups.extend(patterns(1000));
     let w = 0.3 / groups.len().pow(3) as f64;
     for &m in &groups {
         for &k in &groups {
@@ -634,6 +628,13 @@ fn cardinals(s: &mut Sink) {
             }
         }
     }
+}
+
+fn patterns(below: u64) -> Vec<u64> {
+    let mut seen = std::collections::HashSet::new();
+    (1..below)
+        .filter(|&g| seen.insert(cardinal(g).iter().map(|w| role_of(w)).collect::<Vec<u8>>()))
+        .collect()
 }
 
 fn decimals(s: &mut Sink) {
@@ -738,6 +739,28 @@ fn money(s: &mut Sink) {
             }
         }
         s.push(words, SRC_CARDINAL, w, "money");
+    }
+    let (amounts, cents) = (patterns(1000), patterns(100));
+    let w = 0.1 / (amounts.len() * cents.len() * 6) as f64;
+    for &a in &amounts {
+        for &c in &cents {
+            for (joiner, named) in [
+                (None, true),
+                (Some("y"), true),
+                (Some("y"), false),
+                (Some("con"), true),
+                (Some("con"), false),
+            ] {
+                let mut words = cardinal(a);
+                words.push("dólares");
+                words.extend(joiner);
+                words.extend(cardinal(c));
+                if named {
+                    words.push("centavos");
+                }
+                s.push(words, SRC_CARDINAL, w, "money");
+            }
+        }
     }
 }
 
@@ -917,7 +940,7 @@ pub static LANGUAGE: Language = Language {
         month: MONTH,
         may: MAY,
         dot: DOT,
-        time_left: AT,
+        time_left: &[AT],
         time_right: &[AM, PM],
         identifier_left: &[NUMBER],
     },

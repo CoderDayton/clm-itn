@@ -3,10 +3,7 @@ use clm_itn::{Normalizer, Setting};
 const CASES: &[(&str, &str)] = &[
     ("tengo tres gatos", "tengo tres gatos"),
     ("uno punto treinta y tres", "1,33"),
-    (
-        "nueve punto cinco millones de pesos",
-        "9,5 millones de pesos",
-    ),
+    ("nueve punto cinco millones de pesos", "$9,5 millones"),
     ("dos millardos cincuenta y dos", "2000000052"),
     ("setenta y cinco dólares con sesenta y tres", "$75,63"),
     ("diez para las doce", "diez para las doce"),
@@ -76,11 +73,17 @@ const CASES: &[(&str, &str)] = &[
     ("dieciséis mil y dieciocho mil", "16000 y 18000"),
     ("treinta y cuarenta", "30 y 40"),
     ("dos mil millones", "2 mil millones"),
-    (
-        "doscientos mil millones de dólares",
-        "200 mil millones de dólares",
-    ),
+    ("doscientos mil millones de dólares", "$200 mil millones"),
     ("mil ochocientos veinticuatro millones", "1824 millones"),
+    ("mil millones uno", "1000000001"),
+    ("mil millones de pesos", "mil millones de pesos"),
+    (
+        "mil quinientos noventa y tres millones setenta y dos mil novecientos sesenta y uno",
+        "1593072961",
+    ),
+    ("veintinueve dólares cincuenta centavos", "$29,50"),
+    ("dos millones de dólares", "$2 millones"),
+    ("dos millones de personas", "2 millones de personas"),
 ];
 
 #[test]

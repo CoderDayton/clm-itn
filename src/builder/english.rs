@@ -1562,7 +1562,7 @@ pub static LANGUAGE: Language = Language {
         month: MONTH,
         may: MAY,
         dot: DOT,
-        time_left: TIME_LEFT,
+        time_left: &[TIME_LEFT],
         time_right: &TIME_RIGHT,
         identifier_left: &IDENTIFIER_LEFT,
     },

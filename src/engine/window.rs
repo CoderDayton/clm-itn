@@ -2062,11 +2062,17 @@ struct Piece<'a> {
 #[inline(always)]
 fn plan<R: Rules>(t: &Tables, piece: Piece, words: &[Word], windows: &mut WindowBuf) {
     let group_next = |i: usize| words.get(i + 1).is_some_and(|w| starts_group::<R>(t, w));
+    let bigger_later = |i: usize| {
+        words[i + 1..]
+            .iter()
+            .take_while(|w| w.numeric())
+            .any(|w| w.exp > words[i].exp)
+    };
     windows_scaled_into(
         windows,
         words.len(),
         |i| words[i].numeric(),
-        |i| words[i].exp != 0 && group_next(i),
+        |i| words[i].exp != 0 && group_next(i) && !bigger_later(i),
         |i| piece.seen & W_BIG != 0 && words[i].has(W_BIG) && group_next(i),
         |i| words[i].digit(),
         |i| {
@@ -2153,10 +2159,11 @@ fn push_cents<R: Rules>(
     let Some(c) = span[a..].iter().position(currency).map(|c| a + c) else {
         return false;
     };
-    if !span.get(c + 1).is_some_and(|w| role(t, w) == ROLE_AND) {
+    let and = span.get(c + 1).is_some_and(|w| role(t, w) == ROLE_AND);
+    if !and && !span.get(c + 1).is_some_and(Word::value) {
         return false;
     }
-    let from = c + 2;
+    let from = c + 1 + usize::from(and);
     let to = from
         + span[from..]
             .iter()
@@ -2164,7 +2171,7 @@ fn push_cents<R: Rules>(
             .count();
     let named = span.get(to).is_some_and(currency);
     let rest = if named { to + 1 } else { to };
-    if to == from || span[rest..].iter().any(Word::numeric) {
+    if to == from || (!and && !named) || span[rest..].iter().any(Word::numeric) {
         return false;
     }
     let Some(cents) = lead_value::<R>(engine, &span[from..to]).filter(|&v| v < 100) else {

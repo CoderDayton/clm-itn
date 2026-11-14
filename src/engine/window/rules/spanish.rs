@@ -16,6 +16,7 @@ const SPOKEN: Spoken = Spoken {
     digits: [
         "cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve",
     ],
+    of: &["de"],
     adjectives: &[
         (
             DOLLARS,
@@ -74,6 +75,21 @@ fn thousand_millions<'a>(t: &'a Tables, line: &'a str, words: &mut Vec<Word<'a>>
             i += 1;
             continue;
         };
+        let counted = i >= 2 && words[i - 2].numeric();
+        let more = words.get(i + 1).is_some_and(Word::numeric);
+        if !counted && more {
+            words[i - 1] = Word {
+                gap: w.gap,
+                said: w.said,
+                ..tag(t, w.lead, "un", "")
+            };
+            words[i] = Word {
+                said: m.said,
+                ..tag(t, "", "millardos", m.trail)
+            };
+            i += 1;
+            continue;
+        }
         words[i - 1] = Word {
             gap: w.gap,
             core: span,

@@ -57,7 +57,7 @@ pub struct Classes {
     pub may: ClassId,
     pub dot: ClassId,
     /// Left context of a time ("at").
-    pub time_left: ClassId,
+    pub time_left: &'static [ClassId],
     /// Right context of a time ("pm", "o'clock").
     pub time_right: &'static [ClassId],
     /// Left context of an identifier ("room", "flight").

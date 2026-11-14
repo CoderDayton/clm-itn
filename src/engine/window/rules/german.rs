@@ -15,6 +15,7 @@ const SPOKEN: Spoken = Spoken {
     digits: [
         "null", "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun",
     ],
+    of: &[],
     adjectives: &[],
 };
 

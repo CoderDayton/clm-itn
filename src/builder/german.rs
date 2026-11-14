@@ -35,6 +35,7 @@ pub const PER: ClassId = 24;
 pub const TO: ClassId = 25;
 pub const THE: ClassId = 26;
 pub const IS: ClassId = 27;
+pub const OCLOCK: ClassId = 28;
 
 pub const DOMAIN_MONTH_DATE: DomainId = 13;
 pub const DOMAIN_MAY_DATE: DomainId = 14;
@@ -319,6 +320,11 @@ pub const CLASSES: &[ClassDef] = &[
         class: AT,
         role: 0,
         words: &[("um", 0)],
+    },
+    ClassDef {
+        class: OCLOCK,
+        role: 0,
+        words: &[("uhr", 0)],
     },
     ClassDef {
         class: TO,
@@ -818,8 +824,8 @@ pub static LANGUAGE: Language = Language {
         month: MONTH,
         may: MAY,
         dot: DOT,
-        time_left: AT,
-        time_right: &[],
+        time_left: &[AT, OCLOCK],
+        time_right: &[OCLOCK],
         identifier_left: &[NUMBER],
     },
     kinds: KINDS,

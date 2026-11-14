@@ -799,7 +799,7 @@ fn hand_rule(lang: &Language, left: ClassId, right: ClassId) -> Option<(u8, Side
     let c = &lang.class_ids;
     if c.time_right.contains(&right) {
         Some((pack_entry(DOMAIN_TIME, 15), Side::Right))
-    } else if left == c.time_left {
+    } else if c.time_left.contains(&left) {
         Some((pack_entry(DOMAIN_TIME, 8), Side::Left))
     } else if c.identifier_left.contains(&left) || left == c.dot {
         Some((pack_entry(DOMAIN_IDENTIFIER, 12), Side::Left))

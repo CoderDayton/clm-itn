@@ -399,7 +399,9 @@ fn fold(values: &[u32]) -> (u64, bool) {
         if v == 100 {
             cur = cur.max(1).wrapping_mul(100);
         } else if v >= 1000 {
-            total = total.wrapping_add(cur.max(1).wrapping_mul(v));
+            let low = total % v;
+            let group = if low > 0 { low + cur } else { cur.max(1) };
+            total = (total - low).wrapping_add(group.wrapping_mul(v));
             cur = 0;
         } else {
             ok &= cur % p == 0;
