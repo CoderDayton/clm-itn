@@ -2,8 +2,7 @@
 //! [`Tables::from_bytes`] move them between processes, so a language can ship
 //! as a file instead of being compiled in.
 //!
-//! The layout is little-endian, field by field, behind a magic number and
-//! version, and ends with an FNV-1a checksum. It is the same on every target.
+//! The layout is little-endian, field by field, behind a magic number.
 //! The loader checks the layout and the checksum, not the meaning of the
 //! tables; a file from an unknown source can make lookups panic or give
 //! wrong output, never read out of bounds.
@@ -18,7 +17,7 @@ use crate::tables::shape::{SHAPE_SLOTS, ShapeBucket, ShapeTable};
 use crate::tables::{Aligned, MAX_ZONES, Tables, Vocab, WORDS_FIRST_WORDS};
 use crate::types::{DOMAIN_COUNT, MAX_IDIOM_LEN, MAX_IDIOMS, MAX_LEFT_FOLDS, name};
 
-const MAGIC: [u8; 8] = *b"CLMTBL\x00\x01";
+const MAGIC: [u8; 8] = *b"CLMTBL\x00\x02";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoadError {
@@ -34,10 +33,15 @@ pub enum LoadError {
     Invalid,
 }
 
-fn fnv(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
-        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
-    })
+fn checksum(bytes: &[u8]) -> u64 {
+    let step = |h: u64, w: u64| (h ^ w).wrapping_mul(0x0100_0000_01b3).rotate_left(29);
+    let (words, tail) = bytes.as_chunks::<8>();
+    let h = words.iter().fold(0xcbf2_9ce4_8422_2325, |h, w| {
+        step(h, u64::from_le_bytes(*w))
+    });
+    let mut last = [0u8; 8];
+    last[..tail.len()].copy_from_slice(tail);
+    step(step(h, u64::from_le_bytes(last)), bytes.len() as u64)
 }
 
 struct Out(Vec<u8>);
@@ -190,7 +194,7 @@ impl Tables {
         v.centuries.iter().for_each(|t| o.u8s(t));
         v.zones.iter().for_each(|z| o.u8s(z));
         o.u32s(&[v.not_after_number, v.not_before_number]);
-        let sum = fnv(&o.0);
+        let sum = checksum(&o.0);
         o.u64s(&[sum]);
         o.0
     }
@@ -205,7 +209,7 @@ impl Tables {
         let (body, tail) = bytes.split_at(body_len);
         let mut stored = [0u8; 8];
         stored.copy_from_slice(tail);
-        if u64::from_le_bytes(stored) != fnv(body) {
+        if u64::from_le_bytes(stored) != checksum(body) {
             return Err(LoadError::Checksum);
         }
         let mut i = In {
@@ -354,16 +358,50 @@ mod tests {
         );
         let mut longer = good[..good.len() - 8].to_vec();
         longer.push(0);
-        let sum = fnv(&longer);
+        let sum = checksum(&longer);
         longer.extend_from_slice(&sum.to_le_bytes());
         assert_eq!(Tables::from_bytes(&longer).err(), Some(LoadError::Trailing));
         let mut shorter = good[..good.len() - 9].to_vec();
-        let sum = fnv(&shorter);
+        let sum = checksum(&shorter);
         shorter.extend_from_slice(&sum.to_le_bytes());
         assert_eq!(
             Tables::from_bytes(&shorter).err(),
             Some(LoadError::Truncated)
         );
         assert_eq!(Tables::from_bytes(&MAGIC).err(), Some(LoadError::Truncated));
+    }
+
+    #[test]
+    fn a_version_1_image_is_refused() {
+        let mut old = image();
+        old[7] = 1;
+        assert_eq!(Tables::from_bytes(&old).err(), Some(LoadError::Magic));
+    }
+
+    #[test]
+    fn the_checksum_sees_every_byte_and_the_length() {
+        for len in 0..=40 {
+            let bytes: Vec<u8> = (0..len).map(|i| (i * 37 + 11) as u8).collect();
+            let sum = checksum(&bytes);
+            for at in 0..len {
+                for bit in 0..8 {
+                    let mut flipped = bytes.clone();
+                    flipped[at] ^= 1 << bit;
+                    assert_ne!(checksum(&flipped), sum, "len {len} byte {at} bit {bit}");
+                }
+            }
+            let mut longer = bytes.clone();
+            longer.push(0);
+            assert_ne!(checksum(&longer), sum, "len {len} plus a zero");
+        }
+    }
+
+    #[test]
+    fn the_checksum_sees_the_same_high_bit_flipped_in_two_words() {
+        let bytes = [0u8; 64];
+        let mut two = bytes;
+        two[7] ^= 0x80;
+        two[15] ^= 0x80;
+        assert_ne!(checksum(&two), checksum(&bytes));
     }
 }
