@@ -118,6 +118,7 @@ A rewrite beyond writing numbers as digits. All are on by default except `Single
 | Feature | Effect |
 |---|---|
 | `std` (default) | Links `std`; builds the `clm-itn` binary and the `clm-bench` benchmark |
+| `german` (default) | Adds `Normalizer::german()` and the German tables; no dependencies, works with or without `std` |
 | none | `#![no_std]` with `alloc`; the same API |
 | `internals` | Unstable. Exposes the engine, the table builder and the `clm-learn` binary for this repo's own tools |
 
