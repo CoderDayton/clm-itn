@@ -121,7 +121,7 @@ A rewrite beyond writing numbers as digits. All are on by default except `Single
 | none | `#![no_std]` with `alloc`; the same API |
 | `internals` | Unstable. Exposes the engine, the table builder and the `clm-learn` binary for this repo's own tools |
 
-The table builder takes a `Language` (`src/builder/language.rs`): word classes, the spoken examples shapes are ranked from, word kinds, and the spellings the line passes write (month names, time zone codes, centuries). The engine names no word; it reads them from the tables. `english::LANGUAGE` is the only definition. `Tables::to_bytes` and `Tables::from_bytes` write and read a built language as a checksummed little-endian image (about 1 MB); the loader checks layout and checksum, not meaning.
+The table builder takes a `Language` (`src/builder/language.rs`): word classes, the spoken examples shapes are ranked from, word kinds, and the spellings the line passes write (month names, time zone codes, centuries). The engine names no word; it reads them from the tables. Each built-in language has one: `english::LANGUAGE`, `spanish::LANGUAGE`, `portuguese::LANGUAGE` and `german::LANGUAGE`. `Tables::to_bytes` and `Tables::from_bytes` write and read a built language as a checksummed little-endian image (about 1 MB); the loader checks layout and checksum, not meaning.
 
 ```toml
 clm-itn = { version = "0.1", default-features = false } # no_std
@@ -157,6 +157,7 @@ cargo bench --bench clm-bench -- [--n <count>] [--seed <u64>] [--tiers]
 cargo bench --bench clm-bench -- --corpus <file|folder> [--passes <count>] [--tag <t>] [--all-failures] [--sentences] [--no-<setting>]...
 cargo bench --bench clm-bench -- --pairs <pairgen split file> [--isolated]
 cargo bench --bench clm-bench -- --spell <id TAB raw TAB final file>
+cargo bench --bench clm-bench -- --accuracy <en|es|pt|de>[+digits]:<file|folder>...
 ```
 
 The default mode times `Normalizer::normalize_into` over a generated corpus (default 10⁶ utterances of up to 8 tokens, seed 1) and checks p99 against 1.00 µs and allocations against 1.05 per call. `--tiers` adds a per-tier split of the table engine. Exits non-zero when the gate fails. See [PERFORMANCE.md](PERFORMANCE.md).
@@ -166,7 +167,9 @@ The default mode times `Normalizer::normalize_into` over a generated corpus (def
 - Accuracy: right and wrong counts, then exact, digits right, and over-format rate per tag, for all lines and for firm lines (tags not ending in `!`). `--tag` keeps one tag (and its `!` form), `--all-failures` prints every miss, and `--no-<setting>` switches a setting off.
 - `--sentences` also cuts each line after every `.`, `?` or `!` that a space or the line's end follows, and times its sentences normalized back to back as one sample per line.
 - `.jsonl`: one JSON object per line. The spoken text is the first string field named `spoken`, `input`, `raw`, `text` or `sentence`; the written form is `written` or `gold`; the tag is `tag` or `category`. A line without spoken text is an error that names the line.
-- `.tsv` and `.txt`: `spoken [TAB written [TAB tag]]` per line. Lines starting with `#` are skipped. A line with a tab but an empty side counts as malformed.
+- `.tsv` and `.txt`: `spoken [TAB written [TAB tag]]` per line, or `spoken~written` on a line with no tab (the NeMo test-case format). Lines starting with `#` are skipped. A line with an empty spoken or written side counts as malformed.
+
+`--accuracy` scores one language per flag over a corpus file or folder, in the formats above, and prints accuracy only, no timing. Per file and per language it prints exact accuracy (the output equals the written form) and value accuracy (the same numbers in the same order, ignoring currency and unit placement, case, and `.` or `,` inside a number). With more than one flag it prints the average over the languages. `+digits` switches `SingleDigits` on, which the English gold sets in `tests/data` expect. Example: `--accuracy en+digits:tests/data --accuracy es:<nemo>/es`. Third-party test data such as NeMo's stays outside the repo.
 
 `--pairs` scores a `tools/pairgen/` split file per semiotic class, either in sentence context or with `--isolated` spans.
 - `--spell` reads `id`, `raw`, `final` columns, turns the digits in `final` back into words, and prints `spoken`, `written`, `whisper` columns. This builds a test set from text that already has digits.

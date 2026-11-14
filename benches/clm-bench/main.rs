@@ -1,3 +1,4 @@
+mod accuracy;
 mod alloc;
 mod clock;
 mod corpus;
@@ -41,6 +42,7 @@ fn main() -> ExitCode {
     match mode {
         Mode::Pairs { path, isolated } => pairs::run(&path, isolated),
         Mode::Spell(path) => spell::run(&path),
+        Mode::Accuracy(specs) => accuracy::run(&specs),
         Mode::Corpus(opts) => match lines::load(&opts.path) {
             Ok(files) => {
                 let (ns_per_tick, overhead, _) = timer();

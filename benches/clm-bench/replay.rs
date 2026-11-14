@@ -3,13 +3,21 @@ use clm_itn::Setting;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// Time `Normalizer::format` over a generated corpus and gate on p99.
-    Gate { n: usize, seed: u64, tiers: bool },
+    Gate {
+        n: usize,
+        seed: u64,
+        tiers: bool,
+    },
     /// Score and time `format_line` over corpus files.
     Corpus(CorpusOpts),
     /// Score a `tools/pairgen/` split file per semiotic class.
-    Pairs { path: String, isolated: bool },
+    Pairs {
+        path: String,
+        isolated: bool,
+    },
     /// Turn the digits of an `id TAB raw TAB final` file back into words.
     Spell(String),
+    Accuracy(Vec<crate::accuracy::Spec>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,7 +36,8 @@ pub const DEFAULT_SEED: u64 = 1;
 pub const USAGE: &str = "usage: cargo bench --bench clm-bench -- [--n <count>] [--seed <u64>] [--tiers]
        cargo bench --bench clm-bench -- --corpus <file|folder> [--passes <count>] [--tag <t>] [--all-failures] [--sentences] [--no-<setting>]...
        cargo bench --bench clm-bench -- --pairs <pairgen split file> [--isolated]
-       cargo bench --bench clm-bench -- --spell <id TAB raw TAB final file>";
+       cargo bench --bench clm-bench -- --spell <id TAB raw TAB final file>
+       cargo bench --bench clm-bench -- --accuracy <en|es|pt|de>[+digits]:<file|folder>...";
 
 fn once<T>(slot: &mut Option<T>, flag: &str, v: T) -> Result<(), String> {
     match slot.replace(v) {
@@ -50,6 +59,7 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Mode, Strin
     let mut sentences = false;
     let mut off: Vec<Setting> = Vec::new();
     let (mut pairs, mut isolated, mut spell) = (None, false, None);
+    let mut accuracy = Vec::new();
     let mut it = args.into_iter();
     while let Some(flag) = it.next() {
         let mut value = || {
@@ -77,6 +87,7 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Mode, Strin
             "--pairs" => once(&mut pairs, &flag, value()?)?,
             "--isolated" => isolated = true,
             "--spell" => once(&mut spell, &flag, value()?)?,
+            "--accuracy" => accuracy.push(crate::accuracy::parse_spec(&value()?)?),
             f => match f.strip_prefix("--no-").and_then(Setting::from_name) {
                 Some(s) if !off.contains(&s) => off.push(s),
                 Some(_) => return Err(format!("{f} given twice\n{USAGE}")),
@@ -85,11 +96,20 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Mode, Strin
         }
     }
     let gate = n.is_some() || seed.is_some() || tiers;
-    let modes = [gate, corpus.is_some(), pairs.is_some(), spell.is_some()];
+    let modes = [
+        gate,
+        corpus.is_some(),
+        pairs.is_some(),
+        spell.is_some(),
+        !accuracy.is_empty(),
+    ];
     if modes.iter().filter(|&&m| m).count() > 1 {
         return Err(format!(
-            "--n/--seed/--tiers, --corpus, --pairs and --spell are separate modes\n{USAGE}"
+            "--n/--seed/--tiers, --corpus, --pairs, --spell and --accuracy are separate modes\n{USAGE}"
         ));
+    }
+    if !accuracy.is_empty() {
+        return Ok(Mode::Accuracy(accuracy));
     }
     let corpus_flags =
         passes.is_some() || tag.is_some() || all_failures || sentences || !off.is_empty();

@@ -5,6 +5,7 @@
 include!("main.rs");
 
 mod unit {
+    mod accuracy;
     mod alloc;
     mod clock;
     mod corpus;

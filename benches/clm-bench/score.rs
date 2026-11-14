@@ -28,6 +28,28 @@ pub fn digit_runs(s: &str) -> Vec<String> {
     runs
 }
 
+pub fn value_runs(s: &str) -> Vec<String> {
+    let chars: Vec<char> = s.chars().collect();
+    let mut runs = Vec::new();
+    let mut cur = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        if c.is_ascii_digit() {
+            cur.push(c);
+            continue;
+        }
+        let inside = matches!(c, ',' | '.')
+            && !cur.is_empty()
+            && chars.get(i + 1).is_some_and(char::is_ascii_digit);
+        if !inside && !cur.is_empty() {
+            runs.push(std::mem::take(&mut cur));
+        }
+    }
+    if !cur.is_empty() {
+        runs.push(cur);
+    }
+    runs
+}
+
 fn words(s: &str) -> impl Iterator<Item = String> + '_ {
     s.split(|c: char| c.is_whitespace() || c == '-')
         .map(|w| {

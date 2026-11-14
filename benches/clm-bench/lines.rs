@@ -72,8 +72,6 @@ fn read_corpus(f: &Path) -> Result<CorpusFile, String> {
     })
 }
 
-/// `spoken [TAB written [TAB tag]]` lines. A line with a tab but an empty
-/// spoken or written side is malformed.
 pub fn tsv_cases(text: &str) -> (Vec<Case>, usize) {
     let mut cases = Vec::new();
     let mut bad = 0;
@@ -82,10 +80,19 @@ pub fn tsv_cases(text: &str) -> (Vec<Case>, usize) {
         if line.trim().is_empty() || line.starts_with('#') {
             continue;
         }
-        let mut cols = line.splitn(3, '\t');
-        let spoken = cols.next().unwrap_or("").trim();
-        let written = cols.next().map(str::trim);
-        let tag = cols.next().map(str::trim).filter(|t| !t.is_empty());
+        let (spoken, written, tag) = match line.split_once('~').filter(|_| !line.contains('\t')) {
+            Some((s, w)) => (s.trim(), Some(w.trim()), None),
+            None => {
+                let mut cols = line.splitn(3, '\t');
+                let spoken = cols.next().unwrap_or("").trim();
+                let written = cols.next().map(str::trim);
+                (
+                    spoken,
+                    written,
+                    cols.next().map(str::trim).filter(|t| !t.is_empty()),
+                )
+            }
+        };
         if spoken.is_empty() || written == Some("") {
             bad += 1;
             continue;

@@ -28,9 +28,10 @@ taskset -c 2 cargo bench --bench clm-bench -- --tiers       # plus the table eng
 taskset -c 2 cargo bench --bench clm-bench -- --corpus tests/data/dictation.tsv
 taskset -c 2 cargo bench --bench clm-bench -- --corpus my-corpora/   # every .jsonl/.tsv/.txt file
 taskset -c 2 cargo bench --bench clm-bench -- --corpus tests/data/paragraph.jsonl --passes 10000 --sentences
+cargo bench --bench clm-bench -- --accuracy en+digits:tests/data --accuracy es:<nemo>/es   # accuracy only
 ```
 
-The same runs are `cargo script bench`, `cargo script bench-tiers`, `cargo script bench-corpus` and `cargo script bench-paragraph` (`--env CORPUS=<file|folder>`, default `tests/data`). Corpus file formats are in [API.md](API.md#clm-bench).
+The same runs are `cargo script bench`, `cargo script bench-tiers`, `cargo script bench-corpus`, `cargo script bench-paragraph` (`--env CORPUS=<file|folder>`, default `tests/data`) and `cargo script bench-accuracy` (`--env ACCURACY='<lang>[+digits]:<path> ...'`). Corpus file formats are in [API.md](API.md#clm-bench).
 
 ## Results
 
