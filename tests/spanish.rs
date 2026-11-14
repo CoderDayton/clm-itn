@@ -70,6 +70,17 @@ const CASES: &[(&str, &str)] = &[
     ("la semana treinta y dos", "la semana 32"),
     ("dos de los niños", "dos de los niños"),
     ("café con leche", "café con leche"),
+    ("tres coma cero cero cinco", "3,005"),
+    ("menos sesenta coma dos cuatro cero cero", "-60,2400"),
+    ("entre dieciséis y dieciocho", "entre 16 y 18"),
+    ("dieciséis mil y dieciocho mil", "16000 y 18000"),
+    ("treinta y cuarenta", "30 y 40"),
+    ("dos mil millones", "2 mil millones"),
+    (
+        "doscientos mil millones de dólares",
+        "200 mil millones de dólares",
+    ),
+    ("mil ochocientos veinticuatro millones", "1824 millones"),
 ];
 
 #[test]

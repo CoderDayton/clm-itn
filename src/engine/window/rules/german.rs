@@ -15,6 +15,7 @@ pub struct German;
 const SPOKEN: Spoken = Spoken {
     and: "und",
     and_after_hundred: true,
+    clock: &["um"],
     digits: [
         "null", "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun",
     ],

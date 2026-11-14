@@ -103,6 +103,15 @@ const CASES: &[(&str, &str)] = &[
     ("dois dos meninos", "dois dos meninos"),
     ("um e outro", "um e outro"),
     ("café com leite", "café com leite"),
+    ("três vírgula zero zero cinco", "3,005"),
+    ("menos sessenta vírgula dois quatro zero zero", "-60,2400"),
+    ("zero vírgula vinte seis", "0,26"),
+    ("vinte três", "23"),
+    ("cento e vinte três", "123"),
+    ("entre dezesseis e dezoito", "entre 16 e 18"),
+    ("vinte e trinta", "20 e 30"),
+    ("dois mil e três mil", "2000 e 3000"),
+    ("às onze e trinta", "às 11:30"),
 ];
 
 #[test]

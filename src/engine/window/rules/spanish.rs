@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use super::super::{Word, bare, open};
+use super::super::{Word, bare, joined, open, tag};
 use super::Rules;
 use super::shared::{Spoken, hour, is};
 use crate::tables::Tables;
@@ -12,6 +12,7 @@ const DOLLARS: &[&str] = &["dólar", "dólares", "dolar", "dolares"];
 const SPOKEN: Spoken = Spoken {
     and: "y",
     and_after_hundred: false,
+    clock: &["la", "las"],
     digits: [
         "cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve",
     ],
@@ -56,8 +57,30 @@ impl Rules for Spanish {
         Some((written, m.len()))
     }
 
-    fn rewrite<'a>(t: &'a Tables, line: &'a str, words: Vec<Word<'a>>) -> Vec<Word<'a>> {
+    fn rewrite<'a>(t: &'a Tables, line: &'a str, mut words: Vec<Word<'a>>) -> Vec<Word<'a>> {
+        thousand_millions(t, line, &mut words);
         super::shared::rewrite(t, line, words, &SPOKEN, |_, _| None)
+    }
+}
+
+fn thousand_millions<'a>(t: &'a Tables, line: &'a str, words: &mut Vec<Word<'a>>) {
+    let mut i = 1;
+    while i < words.len() {
+        let (w, m) = (words[i - 1], words[i]);
+        let span = (is(&w, &["mil"]) && is(&m, &["millones"]) && open(&w, &m))
+            .then(|| joined(line, w.core, m.core))
+            .flatten();
+        let Some(span) = span else {
+            i += 1;
+            continue;
+        };
+        words[i - 1] = Word {
+            gap: w.gap,
+            core: span,
+            said: span,
+            ..tag(t, w.lead, "millardos", m.trail)
+        };
+        words.remove(i);
     }
 }
 

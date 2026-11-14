@@ -624,6 +624,24 @@ fn cardinals(s: &mut Sink) {
             }
         }
     }
+    let w = 0.05 / 72.0;
+    for t in 2..10 {
+        for d in 1..10 {
+            s.push(vec![TENS_WORDS[t], UNITS[d]], SRC_CARDINAL, w, "cardinal");
+            s.push(
+                vec![UNITS[t % 4], "vírgula", TENS_WORDS[t], UNITS[d]],
+                SRC_CARDINAL,
+                w,
+                "decimal",
+            );
+            s.push(
+                vec![HUNDREDS[d], "e", TENS_WORDS[t], UNITS[d]],
+                SRC_CARDINAL,
+                w,
+                "cardinal",
+            );
+        }
+    }
 }
 
 fn decimals(s: &mut Sink) {
@@ -638,6 +656,7 @@ fn decimals(s: &mut Sink) {
         s.fraction(&mut words);
         s.push(words, SRC_CARDINAL, w, "decimal");
     }
+    zero_patterns(s, "vírgula");
     let w = 1.0 / SCALED_SAMPLES as f64;
     for _ in 0..SCALED_SAMPLES {
         let r = s.rand();
@@ -657,6 +676,33 @@ fn decimals(s: &mut Sink) {
             (false, true) => "bilhões",
         });
         s.push(words, SRC_CARDINAL, w, "scaled");
+    }
+}
+
+fn zero_patterns(s: &mut Sink, point: &'static str) {
+    let w = 0.1 / 500.0;
+    for len in 1..=6u32 {
+        let wholes: &[u64] = match len {
+            1..=4 => &[0, 3, 12, 60, 100, 245],
+            _ => &[1, 45, 300],
+        };
+        for zeros in 0..1u32 << len {
+            for &whole in wholes {
+                let mut words = cardinal(whole);
+                words.push(point);
+                words.extend((0..len).map(|d| match zeros >> d & 1 {
+                    1 => UNITS[0],
+                    _ => UNITS[1 + (whole as usize + 7 * d as usize + zeros as usize) % 9],
+                }));
+                s.push(
+                    [&["menos"][..], &words].concat(),
+                    SRC_CARDINAL,
+                    w,
+                    "decimal",
+                );
+                s.push(words, SRC_CARDINAL, w, "decimal");
+            }
+        }
     }
 }
 

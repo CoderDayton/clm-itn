@@ -1,12 +1,16 @@
 use alloc::vec::Vec;
 
-use super::super::{Word, bare, joined, open, role, tag};
+use super::super::{W_CUT, Word, bare, joined, open, role, tag};
 use crate::tables::Tables;
-use crate::types::{ROLE_DIGIT, ROLE_HUNDRED, ROLE_OH, ROLE_POINT, ROLE_TEEN, ROLE_TENS};
+use crate::types::{
+    ROLE_AND, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MSCALE, ROLE_OH, ROLE_POINT, ROLE_SCALE, ROLE_TEEN,
+    ROLE_TENS,
+};
 
 pub(super) struct Spoken {
     pub and: &'static str,
     pub and_after_hundred: bool,
+    pub clock: &'static [&'static str],
     pub digits: [&'static str; 10],
     pub adjectives: &'static [(
         &'static [&'static str],
@@ -30,10 +34,11 @@ pub(super) fn hour(t: &Tables, w: &Word) -> bool {
 pub(super) fn rewrite<'a>(
     t: &'a Tables,
     line: &'a str,
-    words: Vec<Word<'a>>,
+    mut words: Vec<Word<'a>>,
     s: &Spoken,
     join: impl Fn(&[Word<'a>], usize) -> Option<Word<'a>>,
 ) -> Vec<Word<'a>> {
+    cut_lists(t, &mut words, s);
     let mut out = Vec::with_capacity(words.len() + 4);
     let mut i = 0;
     while i < words.len() {
@@ -68,6 +73,34 @@ pub(super) fn rewrite<'a>(
     out
 }
 
+fn cut_lists(t: &Tables, words: &mut [Word], s: &Spoken) {
+    for k in 1..words.len().saturating_sub(1) {
+        let (p, c, n) = (&words[k - 1], &words[k], &words[k + 1]);
+        if !(is(c, &[s.and]) && p.value() && n.value() && open(p, c) && open(c, n)) {
+            continue;
+        }
+        let clock = hour(t, p) && k >= 2 && is(&words[k - 2], s.clock);
+        if clock {
+            continue;
+        }
+        let joins = match role(t, p) {
+            ROLE_TENS => role(t, n) == ROLE_DIGIT,
+            ROLE_HUNDRED => {
+                s.and_after_hundred && matches!(role(t, n), ROLE_TENS | ROLE_TEEN | ROLE_DIGIT)
+            }
+            ROLE_SCALE | ROLE_MSCALE => words[k + 1..]
+                .iter()
+                .take_while(|w| w.value() || role(t, w) == ROLE_AND)
+                .all(|w| w.exp < p.exp),
+            _ => false,
+        };
+        if !joins {
+            words[k - 1].flags |= W_CUT;
+            words[k].flags |= W_CUT;
+        }
+    }
+}
+
 fn group(t: &Tables, words: &[Word], from: usize, s: &Spoken) -> Option<(u32, usize)> {
     let value = |k: usize| t.value_of.get(words[k].info.canonical as usize).copied();
     let joins = |k: usize| k < words.len() && open(&words[k - 1], &words[k]);
@@ -99,6 +132,9 @@ fn group(t: &Tables, words: &[Word], from: usize, s: &Spoken) -> Option<(u32, us
             if and(k) && at(k + 1) == Some(ROLE_DIGIT) {
                 v += value(k + 1)?;
                 k += 2;
+            } else if at(k) == Some(ROLE_DIGIT) {
+                v += value(k)?;
+                k += 1;
             }
         }
         ROLE_TEEN | ROLE_DIGIT => {

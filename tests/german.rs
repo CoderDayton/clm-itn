@@ -55,6 +55,7 @@ const CASES: &[(&str, &str)] = &[
     ("Hunderte von Menschen", "Hunderte von Menschen"),
     ("Tausende Menschen", "Tausende Menschen"),
     ("Brot und Butter", "Brot und Butter"),
+    ("zwischen zwanzig und dreißig", "zwischen 20 und 30"),
 ];
 
 #[test]

@@ -5,8 +5,9 @@ use super::language::{
 use crate::hash::next_seed;
 use crate::types::{
     CLASS_UNKNOWN, ClassId, DOMAIN_CENTS, DOMAIN_MEASURE, DOMAIN_MONEY, DOMAIN_PERCENT, DomainId,
-    ROLE_AMPM, ROLE_AND, ROLE_CURRENCY, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MINUS, ROLE_MSCALE, ROLE_OH,
-    ROLE_POINT, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, ROLE_UNIT, Setting, kind, name, sense,
+    MAX_TOKENS, ROLE_AMPM, ROLE_AND, ROLE_CURRENCY, ROLE_DIGIT, ROLE_HUNDRED, ROLE_MINUS,
+    ROLE_MSCALE, ROLE_OH, ROLE_POINT, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, ROLE_UNIT, Setting, kind,
+    name, sense,
 };
 
 pub const DIGIT: ClassId = 2;
@@ -457,6 +458,44 @@ pub fn cardinal(n: u64) -> Vec<&'static str> {
     out
 }
 
+fn role_of(word: &str) -> u8 {
+    let number = CLASSES
+        .iter()
+        .find(|c| c.words.iter().any(|x| x.0 == word))
+        .map(|c| c.role);
+    let literal = || {
+        LITERAL_CLASSES
+            .iter()
+            .find(|c| c.words.iter().any(|x| x.0 == word))
+            .map(|c| c.role)
+    };
+    number.or_else(literal).unwrap_or(0)
+}
+
+fn windows(words: &[&'static str]) -> Vec<Vec<&'static str>> {
+    let starts = |w: &str| {
+        matches!(
+            role_of(w),
+            ROLE_DIGIT | ROLE_TEEN | ROLE_TENS | ROLE_OH | ROLE_HUNDRED
+        )
+    };
+    let scale = |w: &str| matches!(role_of(w), ROLE_SCALE | ROLE_MSCALE);
+    let mut out = Vec::new();
+    let mut pos = 0;
+    while words.len() - pos > MAX_TOKENS {
+        let cut = (pos..words.len() - 1).find(|&j| scale(words[j]) && starts(words[j + 1]));
+        match cut {
+            Some(j) if j - pos < MAX_TOKENS => {
+                out.push(words[pos..=j].to_vec());
+                pos = j + 1;
+            }
+            _ => return Vec::new(),
+        }
+    }
+    out.push(words[pos..].to_vec());
+    out
+}
+
 const EXAMPLE_SEED: u64 = 0x4553_505F_4954_4E31;
 const CARDINAL_SAMPLES: usize = 6000;
 const DECIMAL_SAMPLES: usize = 3000;
@@ -515,12 +554,14 @@ struct Sink {
 
 impl Sink {
     fn push(&mut self, words: Vec<&'static str>, src: u8, weight: f64, kind: &'static str) {
-        self.out.push(Example {
-            words,
-            src,
-            weight,
-            kind,
-        });
+        for words in windows(&words) {
+            self.out.push(Example {
+                words,
+                src,
+                weight,
+                kind,
+            });
+        }
     }
 
     fn rand(&mut self) -> u64 {
@@ -574,6 +615,25 @@ fn cardinals(s: &mut Sink) {
         }
         s.push(words, SRC_CARDINAL, 0.2 / 999.0, "cardinal");
     }
+    let mut seen = std::collections::HashSet::new();
+    let mut groups = vec![0u64, 2];
+    for g in 1..1000u64 {
+        let roles: Vec<u8> = cardinal(g).iter().map(|w| role_of(w)).collect();
+        if seen.insert(roles) {
+            groups.push(g);
+        }
+    }
+    let w = 0.3 / groups.len().pow(3) as f64;
+    for &m in &groups {
+        for &k in &groups {
+            for &u in &groups {
+                let n = m * 1_000_000 + k * 1000 + u;
+                if n > 0 {
+                    s.push(cardinal(n), SRC_CARDINAL, w, "cardinal");
+                }
+            }
+        }
+    }
 }
 
 fn decimals(s: &mut Sink) {
@@ -588,6 +648,7 @@ fn decimals(s: &mut Sink) {
         s.fraction(&mut words);
         s.push(words, SRC_CARDINAL, w, "decimal");
     }
+    zero_patterns(s, "coma");
     let w = 1.0 / SCALED_SAMPLES as f64;
     for _ in 0..SCALED_SAMPLES {
         let r = s.rand();
@@ -610,6 +671,33 @@ fn decimals(s: &mut Sink) {
             words[0] = "un";
         }
         s.push(words, SRC_CARDINAL, w, "scaled");
+    }
+}
+
+fn zero_patterns(s: &mut Sink, point: &'static str) {
+    let w = 0.1 / 500.0;
+    for len in 1..=6u32 {
+        let wholes: &[u64] = match len {
+            1..=4 => &[0, 3, 12, 60, 100, 245],
+            _ => &[1, 45, 300],
+        };
+        for zeros in 0..1u32 << len {
+            for &whole in wholes {
+                let mut words = cardinal(whole);
+                words.push(point);
+                words.extend((0..len).map(|d| match zeros >> d & 1 {
+                    1 => UNITS[0],
+                    _ => UNITS[1 + (whole as usize + 7 * d as usize + zeros as usize) % 9],
+                }));
+                s.push(
+                    [&["menos"][..], &words].concat(),
+                    SRC_CARDINAL,
+                    w,
+                    "decimal",
+                );
+                s.push(words, SRC_CARDINAL, w, "decimal");
+            }
+        }
     }
 }
 

@@ -13,6 +13,7 @@ const DOLLARS: &[&str] = &["dólar", "dólares", "dolar", "dolares"];
 const SPOKEN: Spoken = Spoken {
     and: "e",
     and_after_hundred: true,
+    clock: ARTICLES,
     digits: [
         "zero", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove",
     ],
