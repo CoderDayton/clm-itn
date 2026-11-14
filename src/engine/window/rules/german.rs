@@ -1,8 +1,4 @@
 use alloc::vec::Vec;
-use std::sync::OnceLock;
-
-use alloc::string::String;
-use morph_fst::{Lexer, Mode, WordOutput};
 
 use super::super::{Word, joined, open, tag};
 use super::Rules;
@@ -21,8 +17,6 @@ const SPOKEN: Spoken = Spoken {
     ],
     adjectives: &[],
 };
-
-const GRAMMAR: &str = include_str!("german.morph");
 
 const UNITS: [&str; 9] = [
     "ein", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun",
@@ -78,38 +72,248 @@ const HUNDREDS: [&str; 9] = [
     "neunhundert",
 ];
 
-fn strip<'s>(text: &'s str, prefix: &str) -> Option<&'s str> {
-    let head = text.get(..prefix.len())?;
-    head.eq_ignore_ascii_case(prefix)
-        .then(|| &text[prefix.len()..])
-}
-
 fn position(list: &[&str], word: &str) -> Option<usize> {
     list.iter().position(|w| w.eq_ignore_ascii_case(word))
 }
 
-fn below_100(text: &str) -> Option<&'static str> {
-    UNITS.iter().enumerate().find_map(|(u, unit)| {
-        let tens = strip(strip(text, unit)?, "und")?;
-        Some(COMPOUNDS[u][position(&TENS, tens)?])
-    })
+const DIGIT_KEYS: [&str; 10] = [
+    "null", "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun",
+];
+const TEEN_KEYS: [&str; 10] = [
+    "zehn",
+    "elf",
+    "zwölf",
+    "dreizehn",
+    "vierzehn",
+    "fünfzehn",
+    "sechzehn",
+    "siebzehn",
+    "achtzehn",
+    "neunzehn",
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Piece {
+    Digit(u8),
+    One,
+    Teen(u8),
+    Tens(u8),
+    Hundred,
+    Thousand,
+    And,
 }
 
-fn key(piece: &str) -> &str {
-    match piece.len() > MAX_KEY_LEN {
-        true => below_100(piece).unwrap_or(piece),
-        false => piece,
+const PIECES: &[(&str, Piece)] = &[
+    ("eins", Piece::One),
+    ("ein", Piece::Digit(1)),
+    ("zwei", Piece::Digit(2)),
+    ("zwo", Piece::Digit(2)),
+    ("drei", Piece::Digit(3)),
+    ("vier", Piece::Digit(4)),
+    ("fünf", Piece::Digit(5)),
+    ("sechs", Piece::Digit(6)),
+    ("sieben", Piece::Digit(7)),
+    ("acht", Piece::Digit(8)),
+    ("neun", Piece::Digit(9)),
+    ("zehn", Piece::Teen(10)),
+    ("elf", Piece::Teen(11)),
+    ("zwölf", Piece::Teen(12)),
+    ("dreizehn", Piece::Teen(13)),
+    ("vierzehn", Piece::Teen(14)),
+    ("fünfzehn", Piece::Teen(15)),
+    ("sechzehn", Piece::Teen(16)),
+    ("siebzehn", Piece::Teen(17)),
+    ("achtzehn", Piece::Teen(18)),
+    ("neunzehn", Piece::Teen(19)),
+    ("zwanzig", Piece::Tens(2)),
+    ("dreißig", Piece::Tens(3)),
+    ("dreissig", Piece::Tens(3)),
+    ("vierzig", Piece::Tens(4)),
+    ("fünfzig", Piece::Tens(5)),
+    ("sechzig", Piece::Tens(6)),
+    ("siebzig", Piece::Tens(7)),
+    ("achtzig", Piece::Tens(8)),
+    ("neunzig", Piece::Tens(9)),
+    ("hundert", Piece::Hundred),
+    ("tausend", Piece::Thousand),
+    ("und", Piece::And),
+];
+
+const MAX_PIECES: usize = 16;
+const MAX_KEYS: usize = 8;
+
+struct Keys {
+    keys: [&'static str; MAX_KEYS],
+    len: usize,
+}
+
+impl Keys {
+    fn push(&mut self, key: &'static str) -> Option<()> {
+        *self.keys.get_mut(self.len)? = key;
+        self.len += 1;
+        Some(())
+    }
+
+    fn as_slice(&self) -> &[&'static str] {
+        &self.keys[..self.len]
     }
 }
 
-pub(crate) fn lexer() -> Option<&'static Lexer> {
-    static LEXER: OnceLock<Option<Lexer>> = OnceLock::new();
-    LEXER
-        .get_or_init(|| {
-            let built = Lexer::builder().spec(GRAMMAR).build();
-            built.ok().map(|l| l.mode(Mode::Strict))
-        })
-        .as_ref()
+fn lex(text: &str) -> Option<([Piece; MAX_PIECES], usize)> {
+    let bytes = text.as_bytes();
+    let mut out = [Piece::And; MAX_PIECES];
+    let (mut n, mut at) = (0, 0);
+    while at < bytes.len() {
+        let rest = &bytes[at..];
+        let (word, piece) = PIECES
+            .iter()
+            .filter(|(w, _)| {
+                rest.get(..w.len())
+                    .is_some_and(|h| h.eq_ignore_ascii_case(w.as_bytes()))
+            })
+            .max_by_key(|(w, _)| w.len())?;
+        *out.get_mut(n)? = *piece;
+        n += 1;
+        at += word.len();
+    }
+    Some((out, n))
+}
+
+enum Head {
+    None,
+    Hundreds(u8),
+    Year(u8),
+}
+
+struct Group {
+    head: Head,
+    below: u8,
+    ein: bool,
+}
+
+fn group(p: &[Piece], i: &mut usize) -> Option<Group> {
+    let at = |k: usize| p.get(k).copied();
+    let mut j = *i;
+    let head = match (at(j), at(j + 1)) {
+        (Some(Piece::Digit(d)), Some(Piece::Hundred)) => {
+            j += 2;
+            Head::Hundreds(d)
+        }
+        (Some(Piece::Teen(t)), Some(Piece::Hundred)) if t > 10 => {
+            j += 2;
+            Head::Year(t)
+        }
+        (Some(Piece::Hundred), _) => {
+            j += 1;
+            Head::Hundreds(0)
+        }
+        _ => Head::None,
+    };
+    let and = !matches!(head, Head::None) && at(j) == Some(Piece::And);
+    if and {
+        j += 1;
+    }
+    *i = j;
+    let (below, ein, used) = match (at(j), at(j + 1), at(j + 2)) {
+        (Some(Piece::Digit(d)), Some(Piece::And), Some(Piece::Tens(t))) => (t * 10 + d, false, 3),
+        (Some(Piece::One), ..) => (1, false, 1),
+        (Some(Piece::Digit(d)), ..) => (d, d == 1, 1),
+        (Some(Piece::Teen(t)), ..) => (t, false, 1),
+        (Some(Piece::Tens(t)), ..) => (t * 10, false, 1),
+        _ => (0, false, 0),
+    };
+    *i += used;
+    if (matches!(head, Head::None) || and) && below == 0 {
+        return None;
+    }
+    Some(Group { head, below, ein })
+}
+
+fn below_key(v: u8, last: bool) -> &'static str {
+    match v {
+        1 if !last => "ein",
+        0..=9 => DIGIT_KEYS[v as usize],
+        10..=19 => TEEN_KEYS[v as usize - 10],
+        _ if v.is_multiple_of(10) => TENS[v as usize / 10 - 2],
+        _ => COMPOUNDS[v as usize % 10 - 1][v as usize / 10 - 2],
+    }
+}
+
+fn emit(g: &Group, last: bool, keys: &mut Keys) -> Option<()> {
+    match g.head {
+        Head::None => {}
+        Head::Hundreds(0) => keys.push("hundert")?,
+        Head::Hundreds(d) => keys.push(HUNDREDS[d as usize - 1])?,
+        Head::Year(t) => {
+            keys.push(TEEN_KEYS[t as usize - 10])?;
+            keys.push("hundert")?;
+        }
+    }
+    if g.below > 0 {
+        keys.push(below_key(g.below, last))?;
+    }
+    Some(())
+}
+
+fn compound(text: &str) -> Option<Keys> {
+    let (pieces, n) = lex(text)?;
+    let p = &pieces[..n];
+    let mut i = 0;
+    let first = match p.first() {
+        Some(Piece::Thousand) => None,
+        _ => Some(group(p, &mut i)?),
+    };
+    let thousand = p.get(i) == Some(&Piece::Thousand);
+    let mut second = None;
+    if thousand {
+        i += 1;
+        let and = p.get(i) == Some(&Piece::And);
+        i += usize::from(and);
+        if i < n {
+            let g = group(p, &mut i)?;
+            if and && !matches!(g.head, Head::None) {
+                return None;
+            }
+            second = Some(g);
+        } else if and {
+            return None;
+        }
+    }
+    if i != n {
+        return None;
+    }
+    let year = |g: &Option<Group>| {
+        matches!(
+            g,
+            Some(Group {
+                head: Head::Year(_),
+                ..
+            })
+        )
+    };
+    let one_last = |g: &Option<Group>| g.as_ref().is_some_and(|g| g.ein);
+    let eins_before = first.as_ref().is_some_and(|g| g.below == 1 && !g.ein) && thousand;
+    if (thousand && (year(&first) || year(&second)))
+        || eins_before
+        || (!thousand && one_last(&first))
+        || one_last(&second)
+    {
+        return None;
+    }
+    let mut keys = Keys {
+        keys: [""; MAX_KEYS],
+        len: 0,
+    };
+    if let Some(g) = &first {
+        emit(g, !thousand, &mut keys)?;
+    }
+    if thousand {
+        keys.push("tausend")?;
+    }
+    if let Some(g) = &second {
+        emit(g, true, &mut keys)?;
+    }
+    Some(keys)
 }
 
 impl Rules for German {
@@ -125,8 +329,9 @@ impl Rules for German {
     }
 
     fn rewrite<'a>(t: &'a Tables, line: &'a str, words: Vec<Word<'a>>) -> Vec<Word<'a>> {
-        let busy = |w: &Word| compound(w.core) || is(w, &["und", "hundert"]);
-        let words = if words.iter().any(|w| busy(w) || w.core.len() > MAX_KEY_LEN) {
+        let busy =
+            |w: &Word| is(w, &["und", "hundert"]) || (!w.numeric() && compound(w.core).is_some());
+        let words = if words.iter().any(busy) {
             numbers(t, line, &words)
         } else {
             words
@@ -145,16 +350,8 @@ fn numbers<'a>(t: &'a Tables, line: &'a str, words: &[Word<'a>]) -> Vec<Word<'a>
             i += used;
             continue;
         }
-        if !split(t, w, &mut out) {
-            let alias = key(w.core);
-            out.push(match core::ptr::eq(alias, w.core) {
-                true => w,
-                false => Word {
-                    gap: w.gap,
-                    said: w.said,
-                    ..tag(t, w.lead, alias, w.trail)
-                },
-            });
+        if w.numeric() || !split(t, w, &mut out) {
+            out.push(w);
         }
         i += 1;
     }
@@ -185,66 +382,14 @@ fn spaced<'a>(
     Some((word, used))
 }
 
-fn compound(core: &str) -> bool {
-    core.len() > 7
-        && core
-            .as_bytes()
-            .windows(7)
-            .any(|w| w.eq_ignore_ascii_case(b"hundert") || w.eq_ignore_ascii_case(b"tausend"))
-}
-
 fn split<'a>(t: &'a Tables, w: Word<'a>, out: &mut Vec<Word<'a>>) -> bool {
-    if !compound(w.core) {
-        return false;
-    }
-    let Some(lexer) = lexer() else {
+    let Some(keys) = compound(w.core) else {
         return false;
     };
-    let lower: String = w.core.to_lowercase();
-    let WordOutput::Analyzed { best, all } = lexer.lex(&lower, Mode::Strict) else {
-        return false;
-    };
-    if all.len() != 1 || lower.len() != w.core.len() {
-        return false;
-    }
-    let mut pieces: Vec<(usize, usize)> = Vec::with_capacity(8);
-    let mut run: Option<(usize, bool)> = None;
-    let mut at = 0;
-    for p in &best {
-        let end = p.end;
-        match p.tag.as_str() {
-            "HUN" => match run.take() {
-                Some((s, true)) => pieces.push((s, end)),
-                Some((s, false)) => pieces.extend([(s, at), (at, end)]),
-                None => pieces.push((at, end)),
-            },
-            "THO" => {
-                if let Some((s, _)) = run.take() {
-                    pieces.push((s, at));
-                }
-                pieces.push((at, end));
-            }
-            "AND" if run.is_none() => pieces.push((at, end)),
-            tag => {
-                run = Some(run.map_or((at, tag == "D"), |(s, _)| (s, false)));
-            }
-        }
-        at = end;
-    }
-    if let Some((s, _)) = run {
-        pieces.push((s, at));
-    }
-    if at != w.core.len() || pieces.len() < 2 {
-        return false;
-    }
     let start = out.len();
-    let last = pieces.len() - 1;
-    for (k, &(a, b)) in pieces.iter().enumerate() {
-        let Some(piece) = w.core.get(a..b) else {
-            out.truncate(start);
-            return false;
-        };
-        let word = tag(t, "", key(piece), if k == last { w.trail } else { "" });
+    let last = keys.len - 1;
+    for (k, &key) in keys.as_slice().iter().enumerate() {
+        let word = tag(t, "", key, if k == last { w.trail } else { "" });
         if !word.numeric() {
             out.truncate(start);
             return false;
@@ -295,8 +440,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_grammar_builds() {
-        assert!(lexer().is_some());
+    fn compounds_split_into_lexicon_words() {
+        let keys = |s: &str| compound(s).map(|k| k.as_slice().to_vec());
+        let cases: [(&str, Option<&[&str]>); 12] = [
+            (
+                "zweihundertundfünfundvierzig",
+                Some(&["zweihundert", "fünfundvierzig"]),
+            ),
+            ("Hundertsieben", Some(&["hundert", "sieben"])),
+            ("hunderteins", Some(&["hundert", "eins"])),
+            ("eintausend", Some(&["ein", "tausend"])),
+            ("tausendundeins", Some(&["tausend", "eins"])),
+            ("zwounddreissig", Some(&["zweiunddreißig"])),
+            ("siebenundzwanzig", Some(&["siebenzwanzig"])),
+            (
+                "neunzehnhundertneunzig",
+                Some(&["neunzehn", "hundert", "neunzig"]),
+            ),
+            ("hundertein", None),
+            ("einstausend", None),
+            ("einer", None),
+            ("achtung", None),
+        ];
+        for (text, want) in cases {
+            assert_eq!(keys(text).as_deref(), want, "{text}");
+        }
     }
 
     #[test]

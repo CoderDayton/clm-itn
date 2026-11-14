@@ -12,8 +12,6 @@ use alloc::vec::Vec;
 pub(super) use english::English;
 #[cfg(feature = "german")]
 pub(super) use german::German;
-#[cfg(feature = "german")]
-pub(crate) use german::lexer as german_lexer;
 pub(super) use portuguese::Portuguese;
 pub(super) use spanish::Spanish;
 
