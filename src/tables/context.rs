@@ -48,6 +48,10 @@ impl ContextLut {
         &self.table
     }
 
+    pub fn as_raw_mut(&mut self) -> &mut [u8; LUT_SIZE] {
+        &mut self.table
+    }
+
     pub fn set(&mut self, left: ClassId, right: ClassId, entry: u8) {
         self.table[index(left, right)] = entry;
     }

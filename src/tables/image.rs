@@ -13,13 +13,10 @@ use alloc::vec::Vec;
 use core::array::from_fn;
 
 use crate::tables::candidate::{Candidate, CandidateTable, MAX_LITERAL_LEN, MAX_LITERALS, MAX_OPS};
-use crate::tables::context::{ContextLut, LUT_SIZE};
-use crate::tables::lexicon::{BUCKETS, Bucket, Key, Lexicon, MIN_BUCKETS, SLOTS, SLOTS_PER_BUCKET};
-use crate::tables::shape::{SHAPE_BUCKETS, SHAPE_SLOTS, ShapeBucket, ShapeTable};
-use crate::tables::{Aligned, MAX_CANONICAL, MAX_ZONES, Tables, Vocab, WORDS_FIRST_WORDS};
-use crate::types::{
-    CELL_COUNT, DOMAIN_COUNT, MAX_IDIOM_LEN, MAX_IDIOMS, MAX_LEFT_FOLDS, SHAPE_COUNT, name,
-};
+use crate::tables::lexicon::{BUCKETS, Bucket, Key, Lexicon, MIN_BUCKETS, SLOTS_PER_BUCKET};
+use crate::tables::shape::{SHAPE_SLOTS, ShapeBucket, ShapeTable};
+use crate::tables::{Aligned, MAX_ZONES, Tables, Vocab, WORDS_FIRST_WORDS};
+use crate::types::{DOMAIN_COUNT, MAX_IDIOM_LEN, MAX_IDIOMS, MAX_LEFT_FOLDS, name};
 
 const MAGIC: [u8; 8] = *b"CLMTBL\x00\x01";
 
@@ -95,10 +92,23 @@ impl<'a> In<'a> {
             u64::from_le_bytes(w)
         }))
     }
-    fn lut(&mut self) -> Result<[u8; LUT_SIZE], LoadError> {
-        let mut raw = [0u8; LUT_SIZE];
-        raw.copy_from_slice(self.take(LUT_SIZE)?);
-        Ok(raw)
+    fn fill_u8s(&mut self, out: &mut [u8]) -> Result<(), LoadError> {
+        out.copy_from_slice(self.take(out.len())?);
+        Ok(())
+    }
+    fn fill_u32s(&mut self, out: &mut [u32]) -> Result<(), LoadError> {
+        let b = self.take(4 * out.len())?;
+        for (o, c) in out.iter_mut().zip(b.as_chunks::<4>().0) {
+            *o = u32::from_le_bytes(*c);
+        }
+        Ok(())
+    }
+    fn fill_u64s(&mut self, out: &mut [u64]) -> Result<(), LoadError> {
+        let b = self.take(8 * out.len())?;
+        for (o, c) in out.iter_mut().zip(b.as_chunks::<8>().0) {
+            *o = u64::from_le_bytes(*c);
+        }
+        Ok(())
     }
     fn u64(&mut self) -> Result<u64, LoadError> {
         Ok(self.u64s::<1>()?[0])
@@ -202,57 +212,21 @@ impl Tables {
             bytes: &body[MAGIC.len()..],
         };
         let mut t = Tables::boxed_empty();
-        let mut buckets = [Bucket::EMPTY; BUCKETS];
-        for b in &mut buckets {
-            let mut keys: [Key; SLOTS_PER_BUCKET] = [[0; 16]; SLOTS_PER_BUCKET];
-            for k in &mut keys {
-                *k = i.u8s()?;
-            }
-            *b = Bucket::from_keys(keys);
-        }
-        let payload = i.u32s::<SLOTS>()?;
-        let [seed, used] = i.u64s::<2>()?;
-        let used = usize::try_from(used).map_err(|_| LoadError::Invalid)?;
-        if !used.is_power_of_two() || !(MIN_BUCKETS..=BUCKETS).contains(&used) {
-            return Err(LoadError::Invalid);
-        }
-        t.lexicon = Lexicon::from_raw(buckets, payload, seed, used);
+        i.lexicon(&mut t.lexicon)?;
         t.role_of = Aligned(i.u8s()?);
-        t.value_of = Aligned(i.u32s::<MAX_CANONICAL>()?);
-        let mut shapes = [ShapeBucket::EMPTY; SHAPE_BUCKETS];
-        for b in &mut shapes {
-            *b = ShapeBucket::from_raw(i.u32s::<SHAPE_SLOTS>()?, i.u16s::<SHAPE_SLOTS>()?);
-        }
-        t.shapes = ShapeTable::from_raw(shapes, i.u64()?);
-        t.shape_len = Aligned(i.u8s::<SHAPE_COUNT>()?);
-        t.context = ContextLut::from_raw(i.lut()?);
-        let mut records = CandidateTable::new().all_records().to_owned();
-        for row in &mut records {
-            for r in row.iter_mut() {
-                let head = i.u8s::<4>()?;
-                *r = Candidate {
-                    span_len: head[0],
-                    op_count: head[1],
-                    _pad: [head[2], head[3]],
-                    ops: i.u32s::<MAX_OPS>()?,
-                };
-            }
-        }
-        let literals = i.rows::<MAX_LITERALS, MAX_LITERAL_LEN>()?;
-        let lens = i.u8s::<MAX_LITERALS>()?;
-        let count = usize::try_from(i.u64()?).map_err(|_| LoadError::Invalid)?;
-        if count > MAX_LITERALS {
-            return Err(LoadError::Invalid);
-        }
-        t.candidates = CandidateTable::from_raw(records, literals, lens, count);
-        t.cardinal_default = Aligned(i.u8s::<SHAPE_COUNT>()?);
-        t.initial_cells = Aligned(i.u64s::<CELL_COUNT>()?);
+        i.fill_u32s(&mut t.value_of[..])?;
+        i.shapes(&mut t.shapes)?;
+        i.fill_u8s(&mut t.shape_len[..])?;
+        i.fill_u8s(t.context.as_raw_mut())?;
+        i.candidates(&mut t.candidates)?;
+        i.fill_u8s(&mut t.cardinal_default[..])?;
+        i.fill_u64s(&mut t.initial_cells[..])?;
         t.affix_len = Aligned(i.u8s::<DOMAIN_COUNT>()?);
         t.words_first = Aligned(i.u64s::<WORDS_FIRST_WORDS>()?);
         t.plural = Aligned(i.u64s::<WORDS_FIRST_WORDS>()?);
-        t.sense = Aligned(i.u32s::<MAX_CANONICAL>()?);
-        t.kind_of = Aligned(i.u8s::<MAX_CANONICAL>()?);
-        t.aux_of = Aligned(i.u8s::<MAX_CANONICAL>()?);
+        i.fill_u32s(&mut t.sense[..])?;
+        i.fill_u8s(&mut t.kind_of[..])?;
+        i.fill_u8s(&mut t.aux_of[..])?;
         t.starts = Aligned(i.u64s::<4>()?);
         t.per_stop = Aligned(i.u64s::<4>()?);
         t.per_units = Aligned(i.u64s::<4>()?);
@@ -265,20 +239,74 @@ impl Tables {
         (t.bind_roles, t.words_first_roles, t.lead_skip_roles) = (d, e, f);
         t.left_folds = i.rows::<MAX_LEFT_FOLDS, 3>()?;
         t.idioms = i.idioms()?;
-        let mut v = Vocab::EMPTY;
-        v.names = i.rows::<{ name::COUNT }, 16>()?;
-        v.name_id = i.u16s()?;
-        v.months = i.rows()?;
-        v.hours = i.rows()?;
-        v.centuries = i.rows()?;
-        v.zones = i.rows::<MAX_ZONES, 3>()?;
-        let [after, before] = i.u32s::<2>()?;
-        (v.not_after_number, v.not_before_number) = (after, before);
-        t.vocab = v;
+        i.vocab(&mut t.vocab)?;
         if !i.bytes.is_empty() {
             return Err(LoadError::Trailing);
         }
         Ok(t)
+    }
+}
+
+impl In<'_> {
+    fn lexicon(&mut self, lx: &mut Lexicon) -> Result<(), LoadError> {
+        let (buckets, payload) = lx.raw_mut();
+        for b in buckets.iter_mut() {
+            let mut keys: [Key; SLOTS_PER_BUCKET] = [[0; 16]; SLOTS_PER_BUCKET];
+            for k in &mut keys {
+                *k = self.u8s()?;
+            }
+            *b = Bucket::from_keys(keys);
+        }
+        self.fill_u32s(payload)?;
+        let [seed, used] = self.u64s::<2>()?;
+        let used = usize::try_from(used).map_err(|_| LoadError::Invalid)?;
+        if !used.is_power_of_two() || !(MIN_BUCKETS..=BUCKETS).contains(&used) {
+            return Err(LoadError::Invalid);
+        }
+        lx.set_hash(seed, used);
+        Ok(())
+    }
+
+    fn shapes(&mut self, s: &mut ShapeTable) -> Result<(), LoadError> {
+        for b in s.buckets_mut().iter_mut() {
+            *b = ShapeBucket::from_raw(self.u32s::<SHAPE_SLOTS>()?, self.u16s::<SHAPE_SLOTS>()?);
+        }
+        s.set_seed(self.u64()?);
+        Ok(())
+    }
+
+    fn candidates(&mut self, c: &mut CandidateTable) -> Result<(), LoadError> {
+        for row in c.all_records_mut() {
+            for r in row.iter_mut() {
+                let head = self.u8s::<4>()?;
+                *r = Candidate {
+                    span_len: head[0],
+                    op_count: head[1],
+                    _pad: [head[2], head[3]],
+                    ops: self.u32s::<MAX_OPS>()?,
+                };
+            }
+        }
+        let literals = self.rows::<MAX_LITERALS, MAX_LITERAL_LEN>()?;
+        let lens = self.u8s::<MAX_LITERALS>()?;
+        let count = usize::try_from(self.u64()?).map_err(|_| LoadError::Invalid)?;
+        if count > MAX_LITERALS {
+            return Err(LoadError::Invalid);
+        }
+        c.set_literals(literals, lens, count);
+        Ok(())
+    }
+
+    fn vocab(&mut self, v: &mut Vocab) -> Result<(), LoadError> {
+        v.names = self.rows::<{ name::COUNT }, 16>()?;
+        v.name_id = self.u16s()?;
+        v.months = self.rows()?;
+        v.hours = self.rows()?;
+        v.centuries = self.rows()?;
+        v.zones = self.rows::<MAX_ZONES, 3>()?;
+        let [after, before] = self.u32s::<2>()?;
+        (v.not_after_number, v.not_before_number) = (after, before);
+        Ok(())
     }
 }
 

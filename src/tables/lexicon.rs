@@ -291,6 +291,17 @@ impl Lexicon {
         &self.payload
     }
 
+    pub fn raw_mut(&mut self) -> (&mut [Bucket; BUCKETS], &mut [u32; SLOTS]) {
+        (&mut self.buckets, &mut self.payload.0)
+    }
+
+    pub fn set_hash(&mut self, seed: u64, buckets_used: usize) {
+        assert!(buckets_used.is_power_of_two() && buckets_used >= MIN_BUCKETS);
+        assert!(buckets_used <= BUCKETS);
+        self.seed = seed;
+        self.doublings = (buckets_used / MIN_BUCKETS).trailing_zeros();
+    }
+
     pub fn seed(&self) -> u64 {
         self.seed
     }

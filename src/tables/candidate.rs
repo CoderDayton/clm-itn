@@ -172,6 +172,21 @@ impl CandidateTable {
         &self.records
     }
 
+    pub fn all_records_mut(&mut self) -> &mut Records {
+        &mut self.records
+    }
+
+    pub fn set_literals(
+        &mut self,
+        literals: [[u8; MAX_LITERAL_LEN]; MAX_LITERALS],
+        literal_lens: [u8; MAX_LITERALS],
+        literal_count: usize,
+    ) {
+        self.literals = literals;
+        self.literal_lens = literal_lens;
+        self.literal_count = literal_count;
+    }
+
     pub fn literals(&self) -> &[[u8; MAX_LITERAL_LEN]; MAX_LITERALS] {
         &self.literals
     }

@@ -62,6 +62,14 @@ impl ShapeTable {
         &self.buckets
     }
 
+    pub fn buckets_mut(&mut self) -> &mut [ShapeBucket; SHAPE_BUCKETS] {
+        &mut self.buckets
+    }
+
+    pub fn set_seed(&mut self, seed: u64) {
+        self.seed = seed;
+    }
+
     pub fn seed(&self) -> u64 {
         self.seed
     }
