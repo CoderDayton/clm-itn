@@ -391,6 +391,27 @@ fn a_relative_time_stays_as_spoken() {
 }
 
 #[test]
+fn point_as_a_noun_before_of_stays_as_spoken() {
+    let same = [
+        "Point five of the plan is cost.",
+        "point five of the plan",
+        "the point five of them made",
+    ];
+    let numbers = [
+        ("about point five percent", "about 0.5%"),
+        ("it's point five meters", "it's 0.5 meters"),
+        ("two point five of them", "2.5 of them"),
+        ("it is point five", "it is 0.5"),
+    ];
+    for e in [&engine(), &digits()] {
+        for input in same {
+            assert_eq!(line(e, input), input, "{e:?}");
+        }
+        check_lines(e, &numbers);
+    }
+}
+
+#[test]
 fn an_ordinal_after_code_stays_a_word() {
     let engine = engine();
     for (input, want) in [

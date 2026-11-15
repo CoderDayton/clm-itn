@@ -9,8 +9,8 @@ use crate::engine::span::fold_left;
 use crate::tables::{Tables, WORDS_FIRST_WORDS, text};
 use crate::types::{
     CLASS_UNKNOWN, CanonicalId, MAX_TOKENS, ROLE_AND, ROLE_CURRENCY, ROLE_DIGIT, ROLE_HUNDRED,
-    ROLE_MSCALE, ROLE_OH, ROLE_ORDINAL, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting, TokenInfo, kind,
-    name, sense,
+    ROLE_MSCALE, ROLE_OH, ROLE_ORDINAL, ROLE_POINT, ROLE_SCALE, ROLE_TEEN, ROLE_TENS, Setting,
+    TokenInfo, kind, name, sense,
 };
 #[cfg(feature = "german")]
 use rules::German;
@@ -569,7 +569,8 @@ fn idiom(
 /// stays as spoken. Context never crosses punctuation.
 fn word_sense(t: &Tables, words: &[Word], i: usize) -> Option<(usize, usize)> {
     let me = t.sense[words[i].info.canonical as usize];
-    if me & (sense::COUNT | sense::IDIOM) == 0 {
+    let point = role(t, &words[i]) == ROLE_POINT;
+    if me & (sense::COUNT | sense::IDIOM) == 0 && !point {
         return None;
     }
     let at = |d: isize| -> Option<&Word> {
@@ -584,6 +585,10 @@ fn word_sense(t: &Tables, words: &[Word], i: usize) -> Option<(usize, usize)> {
     let numeric = |d: isize| at(d).is_some_and(|w| w.numeric());
     if numeric(-1) {
         return None;
+    }
+    if point {
+        let opens = at(-1).is_none() || is(-1, sense::ONE_AFTER);
+        return (opens && is(1, sense::COUNT) && is(2, sense::OF)).then_some((i, i + 1));
     }
     if me & sense::IDIOM != 0
         && let Some(span) = idiom(t, words, i, id)
