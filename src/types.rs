@@ -46,6 +46,7 @@ pub mod sense {
     pub const MERIDIEM: u32 = 1 << 24;
     /// A word after which a month name is a verb ("we march").
     pub const SUBJECT: u32 = 1 << 25;
+    pub const HALF: u32 = 1 << 26;
 }
 
 /// Word kinds in `Tables::kind_of`: the words the line passes look for. A

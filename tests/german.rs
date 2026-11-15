@@ -65,6 +65,8 @@ const CASES: &[(&str, &str)] = &[
     ("Eine Stunde später.", "Eine Stunde später."),
     ("eine minute", "eine minute"),
     ("ein tag", "ein tag"),
+    ("eine stunde und eine halbe", "eine stunde und eine halbe"),
+    ("eine stunde und zwanzig minuten", "1 stunde und 20 minuten"),
     ("einundzwanzig stunden", "21 stunden"),
     ("zwei stunden", "2 stunden"),
 ];

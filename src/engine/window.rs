@@ -600,10 +600,14 @@ fn word_sense(t: &Tables, words: &[Word], i: usize) -> Option<(usize, usize)> {
     // A cue word before it ("step one.", "number one is") makes it a label.
     let plain_prev = at(-1).is_none_or(|w| w.info.class == CLASS_UNKNOWN);
     let (prev, next) = (t.sense[id(-1) as usize], t.sense[id(1) as usize]);
+    let and_half = || {
+        let half = if is(3, sense::ONE) { 4 } else { 3 };
+        is(2, sense::AND) && is(half, sense::HALF) && !numeric(half + 1)
+    };
     let pronoun = one
         && ((prev & sense::ONE_AFTER != 0 && (!numeric(1) || next & sense::AND != 0))
             || (plain_prev && (at(1).is_none() || next & sense::ONE_CLAUSE != 0))
-            || (next & sense::ONE_BEFORE != 0 && !numeric(2))
+            || (next & sense::ONE_BEFORE != 0 && (!numeric(2) || and_half()))
             || (next & sense::DAY != 0 && at(-1).is_none())
             || (prev & sense::IN != 0 && next & sense::PIECE != 0)
             || (next & sense::IN != 0 && is(2, sense::A) && is(3, sense::MILLION)));

@@ -856,6 +856,7 @@ const SENSES: &[(u32, &[&str])] = &[
         &["día", "semana", "mes", "año", "hora", "minuto"],
     ),
     (sense::AND, &["y"]),
+    (sense::HALF, &["media", "medio"]),
     (sense::MILLION, &["millón", "millones"]),
     (sense::OF, &["de"]),
     (sense::TWENTY, &["veinte"]),

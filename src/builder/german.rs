@@ -742,6 +742,7 @@ const SENSES: &[(u32, &[&str])] = &[
     (sense::ONE, &["eins", "ein", "eine"]),
     (sense::ONE_BEFORE, &["stunde", "minute"]),
     (sense::AND, &["und"]),
+    (sense::HALF, &["halbe"]),
     (sense::MILLION, &["million", "millionen"]),
     (sense::TWENTY, &["zwanzig"]),
     (sense::FIVE, &["fünf"]),
