@@ -740,6 +740,7 @@ const DIGIT_WORDS: &[&str] = &[
 const SENSES: &[(u32, &[&str])] = &[
     (sense::COUNT, DIGIT_WORDS),
     (sense::ONE, &["eins", "ein", "eine"]),
+    (sense::ONE_BEFORE, &["stunde", "minute"]),
     (sense::AND, &["und"]),
     (sense::MILLION, &["million", "millionen"]),
     (sense::TWENTY, &["zwanzig"]),

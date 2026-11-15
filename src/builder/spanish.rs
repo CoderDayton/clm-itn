@@ -851,6 +851,10 @@ const DIGIT_WORDS: &[&str] = &[
 const SENSES: &[(u32, &[&str])] = &[
     (sense::COUNT, DIGIT_WORDS),
     (sense::ONE, &["uno", "un", "una"]),
+    (
+        sense::ONE_BEFORE,
+        &["día", "semana", "mes", "año", "hora", "minuto"],
+    ),
     (sense::AND, &["y"]),
     (sense::MILLION, &["millón", "millones"]),
     (sense::OF, &["de"]),

@@ -84,6 +84,17 @@ const CASES: &[(&str, &str)] = &[
     ("veintinueve dólares cincuenta centavos", "$29,50"),
     ("dos millones de dólares", "$2 millones"),
     ("dos millones de personas", "2 millones de personas"),
+    ("Un día bonito.", "Un día bonito."),
+    ("un día bonito", "un día bonito"),
+    ("trabajé un día", "trabajé un día"),
+    ("un año después", "un año después"),
+    ("Una semana buena.", "Una semana buena."),
+    ("un mes después", "un mes después"),
+    ("una hora después", "una hora después"),
+    ("un minuto", "un minuto"),
+    ("treinta y un días", "31 días"),
+    ("veintiún días", "21 días"),
+    ("dos días", "2 días"),
 ];
 
 #[test]
