@@ -612,7 +612,8 @@ fn word_sense(t: &Tables, words: &[Word], i: usize) -> Option<(usize, usize)> {
     let pronoun = one
         && ((prev & sense::ONE_AFTER != 0 && (!numeric(1) || next & sense::AND != 0))
             || (plain_prev && (at(1).is_none() || next & sense::ONE_CLAUSE != 0))
-            || (next & sense::ONE_BEFORE != 0 && (!numeric(2) || and_half()))
+            || (next & sense::ONE_BEFORE != 0
+                && (!numeric(2) || at(2).is_some_and(|w| w.ordinal()) || and_half()))
             || (next & sense::DAY != 0 && at(-1).is_none())
             || (prev & sense::IN != 0 && next & sense::PIECE != 0)
             || (next & sense::IN != 0 && is(2, sense::A) && is(3, sense::MILLION)));

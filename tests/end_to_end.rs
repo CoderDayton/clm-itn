@@ -412,6 +412,27 @@ fn point_as_a_noun_before_of_stays_as_spoken() {
 }
 
 #[test]
+fn one_before_its_noun_stays_a_word_when_an_ordinal_follows() {
+    let same = [
+        "One thing first.",
+        "one thing first, then the rest",
+        "give me one more second",
+    ];
+    for e in [&engine(), &digits()] {
+        for input in same {
+            assert_eq!(line(e, input), input, "{e:?}");
+        }
+    }
+    check_lines(
+        &digits(),
+        &[
+            ("one of five", "1 of 5"),
+            ("one more five minutes", "1 more 5 minutes"),
+        ],
+    );
+}
+
+#[test]
 fn an_ordinal_after_code_stays_a_word() {
     let engine = engine();
     for (input, want) in [
